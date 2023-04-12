@@ -29,6 +29,8 @@ debuginfod-find \- request debuginfo-related data
 .B debuginfod-find [\fIOPTION\fP]... source \fIBUILDID\fP \fI/FILENAME\fP
 .br
 .B debuginfod-find [\fIOPTION\fP]... source \fIPATH\fP \fI/FILENAME\fP
+.br
+.B debuginfod-find [\fIOPTION\fP]... metadata \fIKEY\fP \fIVALUE\fP
 
 .SH DESCRIPTION
 \fBdebuginfod-find\fP queries one or more \fBdebuginfod\fP servers for
@@ -117,6 +119,36 @@ l l.
 #include <stdio.h>	source BUILDID /usr/include/stdio.h
 /path/to/foo.c	source BUILDID /path/to/foo.c
 \../bar/foo.c AT_comp_dir=/zoo/	source BUILDID /zoo//../bar/foo.c
+.TE
+
+.SS metadata \fIKEY\fP \fIVALUE\fP
+
+All designated debuginfod servers are queried for metadata about files
+in their index.  Different search keys may be supported by different
+servers.
+
+.TS
+l l l .
+KEY	VALUE	DESCRIPTION
+
+\fBfile\fP	path	exact match \fIpath\fP, including in archives
+\fBglob\fP	pattern	glob match \fIpattern\fP, including in archives
+.TE
+
+The results of the search are output to \fBstdout\fP as a JSON array
+of objects, supplying metadata about each match.  This metadata report
+may be cached.  It may be incomplete and may contain duplicates.  For
+each match, the result is a JSON object with these fields.  Additional
+fields may be present.
+
+.TS
+l l l .
+NAME	TYPE	DESCRIPTION
+
+\fBbuildid\fP	string	hexadecimal buildid associated with the file
+\fBtype\fP	string	one of \fBdebuginfo\fP or \fBexecutable\fP
+\fBfile\fP	string	matched file name, outside or inside the archive
+\fBarchive\fP	string	archive containing matched file name, if any
 .TE
 
 .SH "OPTIONS"

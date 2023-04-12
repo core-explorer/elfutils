@@ -1,3 +1,9 @@
+2023-04-12  Ryan Golberg <rgoldberg@redhat.com>, Frank Ch. Eigler <fche@redhat.com>
+
+	PR29472: debuginfod metadata query
+	* NEWS: Mention this.
+	* configure.ac: Look for json-c library.
+
 2023-03-27  Di Chen  <dichen@redhat.com>
 
 	* NEWS: Support readelf -Ds for using dynamic segment to

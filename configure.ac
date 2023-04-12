@@ -665,6 +665,12 @@ case "$ac_cv_search__obstack_free" in
 esac
 AC_SUBST([obstack_LIBS])
 
+dnl formerly checked for json_object_array_add, but debuginfod needs a newer function
+AC_CHECK_LIB(json-c, json_object_from_fd, [
+  AC_DEFINE([HAVE_JSON_C], [1], [Define if json-c is on the machine])
+  AC_SUBST(jsonc_LIBS, '-ljson-c')
+])
+
 dnl The directories with content.
 
 dnl Documentation.

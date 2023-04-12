@@ -1,6 +1,6 @@
 /* Command-line frontend for retrieving ELF / DWARF / source files
    from the debuginfod.
-   Copyright (C) 2019-2020 Red Hat, Inc.
+   Copyright (C) 2019-2023 Red Hat, Inc.
    This file is part of elfutils.
 
    This file is free software; you can redistribute it and/or modify
@@ -31,6 +31,9 @@
 #include <gelf.h>
 #include <libdwelf.h>
 
+#ifdef HAVE_JSON_C
+  #include <json-c/json.h>
+#endif
 
 /* Name and version of program.  */
 ARGP_PROGRAM_VERSION_HOOK_DEF = print_version;
@@ -50,7 +53,11 @@ static const char args_doc[] = N_("debuginfo BUILDID\n"
                                   "source BUILDID /FILENAME\n"
                                   "source PATH /FILENAME\n"
 				  "section BUILDID SECTION-NAME\n"
-				  "section PATH SECTION-NAME\n");
+				  "section PATH SECTION-NAME\n"
+#ifdef HAVE_JSON_C                                  
+                                  "metadata KEY VALUE\n"
+#endif
+                                  );
 
 
 /* Definitions of arguments for argp functions.  */
@@ -145,44 +152,51 @@ main(int argc, char** argv)
   /* If we were passed an ELF file name in the BUILDID slot, look in there. */
   unsigned char* build_id = (unsigned char*) argv[remaining+1];
   int build_id_len = 0; /* assume text */
-
-  int any_non_hex = 0;
-  int i;
-  for (i = 0; build_id[i] != '\0'; i++)
-    if ((build_id[i] >= '0' && build_id[i] <= '9') ||
-        (build_id[i] >= 'a' && build_id[i] <= 'f'))
-      ;
-    else
-      any_non_hex = 1;
-
-  int fd = -1;
   Elf* elf = NULL;
-  if (any_non_hex) /* raw build-id */
+
+  /* Process optional buildid given via ELF file name, for some query types only. */
+  if (strcmp(argv[remaining], "debuginfo") == 0
+      || strcmp(argv[remaining], "executable") == 0
+      || strcmp(argv[remaining], "source") == 0
+      || strcmp(argv[remaining], "section") == 0)
     {
-      fd = open ((char*) build_id, O_RDONLY);
-      if (fd < 0)
-        fprintf (stderr, "Cannot open %s: %s\n", build_id, strerror(errno));
-    }
-  if (fd >= 0)
-    {
-      elf = dwelf_elf_begin (fd);
-      if (elf == NULL)
-        fprintf (stderr, "Cannot open as ELF file %s: %s\n", build_id,
-		 elf_errmsg (-1));
-    }
-  if (elf != NULL)
-    {
-      const void *extracted_build_id;
-      ssize_t s = dwelf_elf_gnu_build_id(elf, &extracted_build_id);
-      if (s > 0)
+      int any_non_hex = 0;
+      int i;
+      for (i = 0; build_id[i] != '\0'; i++)
+        if ((build_id[i] >= '0' && build_id[i] <= '9') ||
+            (build_id[i] >= 'a' && build_id[i] <= 'f'))
+          ;
+        else
+          any_non_hex = 1;
+      
+      int fd = -1;
+      if (any_non_hex) /* raw build-id */
         {
-          /* Success: replace the build_id pointer/len with the binary blob
-             that elfutils is keeping for us.  It'll remain valid until elf_end(). */
-          build_id = (unsigned char*) extracted_build_id;
-          build_id_len = s;
+          fd = open ((char*) build_id, O_RDONLY);
+          if (fd < 0)
+            fprintf (stderr, "Cannot open %s: %s\n", build_id, strerror(errno));
         }
-      else
-        fprintf (stderr, "Cannot extract build-id from %s: %s\n", build_id, elf_errmsg(-1));
+      if (fd >= 0)
+        {
+          elf = dwelf_elf_begin (fd);
+          if (elf == NULL)
+            fprintf (stderr, "Cannot open as ELF file %s: %s\n", build_id,
+                     elf_errmsg (-1));
+        }
+      if (elf != NULL)
+        {
+          const void *extracted_build_id;
+          ssize_t s = dwelf_elf_gnu_build_id(elf, &extracted_build_id);
+          if (s > 0)
+            {
+              /* Success: replace the build_id pointer/len with the binary blob
+                 that elfutils is keeping for us.  It'll remain valid until elf_end(). */
+              build_id = (unsigned char*) extracted_build_id;
+              build_id_len = s;
+            }
+          else
+            fprintf (stderr, "Cannot extract build-id from %s: %s\n", build_id, elf_errmsg(-1));
+        }
     }
 
   char *cache_name;
@@ -221,6 +235,19 @@ main(int argc, char** argv)
       rc = debuginfod_find_section(client, build_id, build_id_len,
 				   argv[remaining+2], &cache_name);
     }
+#ifdef HAVE_JSON_C
+  else if (strcmp(argv[remaining], "metadata") == 0) /* no buildid! */
+    {
+      if (remaining+2 == argc)
+        {
+          fprintf(stderr, "Require KEY and VALUE for \"metadata\"\n");
+          return 1;
+        }
+      
+      rc = debuginfod_find_metadata (client, argv[remaining+1], argv[remaining+2],
+                                     &cache_name);
+    }
+#endif
   else
     {
       argp_help (&argp, stderr, ARGP_HELP_USAGE, argv[0]);
@@ -240,8 +267,6 @@ main(int argc, char** argv)
   debuginfod_end (client);
   if (elf)
     elf_end(elf);
-  if (fd >= 0)
-    close (fd);
 
   if (rc < 0)
     {

@@ -1,3 +1,10 @@
+2023-04-12  Ryan Golberg <rgoldberg@redhat.com>, Frank Ch. Eigler <fche@redhat.com>
+
+	PR29472: debuginfod metadata query
+	* debuginfod-find.1: Document metadata query.
+	* debuginfod-client-config.7: Document metadata cache control setting.
+	* debuginfod.8: Document new option and webapi.
+
 2023-02-14  Mark Wielaard  <mark@klomp.org>
 
 	* debuginfod.8: Add .TP before -g.

@@ -1,3 +1,26 @@
+2023-04-12  Ryan Golberg <rgoldberg@redhat.com>, Frank Ch. Eigler <fche@redhat.com>
+
+	PR29472: debuginfod metadata query
+	* Makefile.am: Add json-c usage.
+	* debuginfod-client.c (debuginfod_find_metadata): New function.
+	(handle_data): New fields to hold metadata being received.
+	(debuginfod_clean_cache): Clean metadata too.
+	(header_callback): Simplify to realloc only.
+	(metadata_callback): New function.
+	(init_server_urls, init_handle, perform_queries, make_cache_path):
+	New refactored functions.
+	(debuginfod_query_server_by_buildid): Renamed, refactored.  Update
+	callers.
+	* debuginfod-find.c (main): Handle metadata queries.
+	* debuginfod.cxx (DEBUGINFOD_SQLITE_DDL): Add an index or two.
+	(metadata_maxtime_s, parse_opt): New parameter for load control.
+	(add_client_federation_headers): New refactored function.
+	(handle_metadata): New function.
+	(handler_cb): Call it for /metadata URL.  Trace it.
+	(groom): Tweak sqlite_ps object lifetimes.
+	* debuginfod.h.in (debuginfod_find_metadata): New decl.
+	* libdebuginfod.map: Export it under ELFUTILS_0.190.
+
 2023-04-21  Frank Ch. Eigler <fche@redhat.com>
 
 	* debuginfod.cxx (groom): Fix -r / -X logic.
