@@ -2722,15 +2722,15 @@ handle_metadata (MHD_Connection* conn,
                       // explicit query r_de and f_de once here, rather than the query_d and query_e
                       // separately, because they scan the same tables, so we'd double the work
                       "select d1.executable_p, d1.debuginfo_p, 0 as source_p, b1.hex, f1.name as file, a1.name as archive "
-                      "from " BUILDIDS "_r_de d1, " BUILDIDS "_files f1, " BUILDIDS "_buildids b1, " BUILDIDS "_files a1 "
+                      "from " BUILDIDS "_r_de d1, " BUILDIDS "_files_v f1, " BUILDIDS "_buildids b1, " BUILDIDS "_files_v a1 "
                       "where f1.id = d1.content and a1.id = d1.file and d1.buildid = b1.id and f1.name " + op + " ? "
                       "union all \n"
                       "select d2.executable_p, d2.debuginfo_p, 0, b2.hex, f2.name, NULL "
-                      "from " BUILDIDS "_f_de d2, " BUILDIDS "_files f2, " BUILDIDS "_buildids b2 "
+                      "from " BUILDIDS "_f_de d2, " BUILDIDS "_files_v f2, " BUILDIDS "_buildids b2 "
                       "where f2.id = d2.file and d2.buildid = b2.id and f2.name " + op + " ? ");
   // NB: we could query source file names too, thusly:
   //
-  //    select * from " BUILDIDS "_buildids b, " BUILDIDS "_files f1, " BUILDIDS "_r_sref sr
+  //    select * from " BUILDIDS "_buildids b, " BUILDIDS "_files_v f1, " BUILDIDS "_r_sref sr
   //    where b.id = sr.buildid and f1.id = sr.artifactsrc and f1.name " + op + "?"
   //    UNION ALL something with BUILDIDS "_f_s"
   //
@@ -2748,23 +2748,27 @@ handle_metadata (MHD_Connection* conn,
   // pp->bind(3, value); // "source" query clause disabled
   unique_ptr<sqlite_ps> ps_closer(pp); // release pp if exception or return
 
-  json_object *metadata = json_object_new_array();
-  if (!metadata)
-    throw libc_exception(ENOMEM, "json allocation");
-  
+  json_object *metadata = json_object_new_object();
+  if (!metadata) throw libc_exception(ENOMEM, "json allocation");
+  defer_dtor<json_object*,int> metadata_d(metadata, json_object_put);
+  json_object *metadata_arr = json_object_new_array();
+  if (!metadata_arr) throw libc_exception(ENOMEM, "json allocation");
   // consume all the rows
   struct timespec ts_start;
   clock_gettime (CLOCK_MONOTONIC, &ts_start);
   
   int rc;
+  bool metadata_complete = true;
   while (SQLITE_DONE != (rc = pp->step()))
     {
       // break out of loop if we have searched too long
       struct timespec ts_end;
       clock_gettime (CLOCK_MONOTONIC, &ts_end);
       double deltas = (ts_end.tv_sec - ts_start.tv_sec) + (ts_end.tv_nsec - ts_start.tv_nsec)/1.e9;
-      if (metadata_maxtime_s > 0 && deltas > metadata_maxtime_s)
-        break; // NB: no particular signal is given to the client about incompleteness
+      if (metadata_maxtime_s > 0 && deltas > metadata_maxtime_s){
+        metadata_complete = false;
+        break;
+      }
       
       if (rc != SQLITE_ROW) throw sqlite_exception(rc, "step");
 
@@ -2780,7 +2784,7 @@ handle_metadata (MHD_Connection* conn,
       if (key == "glob" && fnmatch(value.c_str(), m_file.c_str(), FNM_PATHNAME) != 0)
         continue;
       
-      auto add_metadata = [metadata, m_buildid, m_file, m_archive](const string& type) {
+      auto add_metadata = [metadata_arr, m_buildid, m_file, m_archive](const string& type) {
         json_object* entry = json_object_new_object();
         if (NULL == entry) throw libc_exception (ENOMEM, "cannot allocate json");
         defer_dtor<json_object*,int> entry_d(entry, json_object_put);
@@ -2805,7 +2809,7 @@ handle_metadata (MHD_Connection* conn,
                          << endl;
         
         // Increase ref count to switch its ownership
-        json_object_array_add(metadata, json_object_get(entry));
+        json_object_array_add(metadata_arr, json_object_get(entry));
       };
 
       if (m_executable_p) add_metadata("executable");
@@ -2814,22 +2818,27 @@ handle_metadata (MHD_Connection* conn,
     }
   pp->reset();
 
-  unsigned num_local_results = json_object_array_length(metadata);
+  unsigned num_local_results = json_object_array_length(metadata_arr);
   
   // Query upstream as well
   debuginfod_client *client = debuginfod_pool_begin();
-  if (metadata && client != NULL)
+  if (client != NULL)
   {
     add_client_federation_headers(client, conn);
 
     int upstream_metadata_fd;
-    upstream_metadata_fd = debuginfod_find_metadata(client, key.c_str(), value.c_str(), NULL);
+    upstream_metadata_fd = debuginfod_find_metadata(client, key.c_str(), (char*)value.c_str(), NULL);
     if (upstream_metadata_fd >= 0) {
       json_object *upstream_metadata_json = json_object_from_fd(upstream_metadata_fd);
-      if (NULL != upstream_metadata_json)
+      json_object *upstream_metadata_json_arr;
+      json_object *upstream_complete;
+      if (NULL != upstream_metadata_json &&
+          json_object_object_get_ex(upstream_metadata_json, "results", &upstream_metadata_json_arr) &&
+          json_object_object_get_ex(upstream_metadata_json, "complete", &upstream_complete))
         {
-          for (int i = 0, n = json_object_array_length(upstream_metadata_json); i < n; i++) {
-            json_object *entry = json_object_array_get_idx(upstream_metadata_json, i);
+          metadata_complete &= json_object_get_boolean(upstream_complete);
+          for (int i = 0, n = json_object_array_length(upstream_metadata_json_arr); i < n; i++) {
+            json_object *entry = json_object_array_get_idx(upstream_metadata_json_arr, i);
             if (verbose > 3)
               obatched(clog) << "metadata found remote "
                              << json_object_to_json_string_ext(entry,
@@ -2837,7 +2846,7 @@ handle_metadata (MHD_Connection* conn,
                              << endl;
             
             json_object_get(entry); // increment reference count
-            json_object_array_add(metadata, entry);
+            json_object_array_add(metadata_arr, entry);
           }
           json_object_put(upstream_metadata_json);
         }
@@ -2846,7 +2855,7 @@ handle_metadata (MHD_Connection* conn,
     debuginfod_pool_end (client);
   }
 
-  unsigned num_total_results = json_object_array_length(metadata);
+  unsigned num_total_results = json_object_array_length(metadata_arr);
 
   if (verbose > 2)
     obatched(clog) << "metadata found local=" << num_local_results
@@ -2854,15 +2863,15 @@ handle_metadata (MHD_Connection* conn,
                    << " total=" << num_total_results
                    << endl;
   
-  const char* metadata_str = (metadata != NULL) ?
-    json_object_to_json_string(metadata) : "[ ]" ;
-  if (! metadata_str)
+  json_object_object_add(metadata, "results", metadata_arr);
+  json_object_object_add(metadata, "complete", json_object_new_boolean(metadata_complete));
+  const char* metadata_str = json_object_to_json_string(metadata);
+  if (!metadata_str)
     throw libc_exception (ENOMEM, "cannot allocate json");
   r = MHD_create_response_from_buffer (strlen(metadata_str),
                                        (void*) metadata_str,
                                        MHD_RESPMEM_MUST_COPY);
   *size = strlen(metadata_str);
-  json_object_put(metadata);
   if (r)
     add_mhd_response_header(r, "Content-Type", "application/json");
   return r;

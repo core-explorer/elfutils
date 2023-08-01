@@ -135,8 +135,29 @@ KEY	VALUE	DESCRIPTION
 \fBglob\fP	pattern	glob match \fIpattern\fP, including in archives
 .TE
 
-The results of the search are output to \fBstdout\fP as a JSON array
-of objects, supplying metadata about each match.  This metadata report
+The resulting output will look something like the following
+{
+  "results":[
+    {
+      "type":"executable",
+      "buildid":"f0aa15b8aba4f3c28cac3c2a73801fefa644a9f2",
+      "file":"\/usr\/local\/bin\/hello",
+      "archive":"\/opt\/elfutils\/tests\/test-2290642\/R\/rhel7\/hello2-1.0-2.x86_64.rpm"
+    },
+    {
+      "type":"executable",
+      "buildid":"bc1febfd03ca05e030f0d205f7659db29f8a4b30",
+      "file":"hello2",
+    }
+  ],
+  "complete":true
+}'
+
+The results of the search are output to \fBstdout\fP as a JSON object
+containing an array of objects, supplying metadata about each match, as
+well as a boolean value corresponding to the completeness of the result.
+The result is considered complete if all of the queries to upstream servers
+returned results with no issues and the local query succeeded. This metadata report
 may be cached.  It may be incomplete and may contain duplicates.  For
 each match, the result is a JSON object with these fields.  Additional
 fields may be present.
@@ -150,6 +171,13 @@ NAME	TYPE	DESCRIPTION
 \fBfile\fP	string	matched file name, outside or inside the archive
 \fBarchive\fP	string	archive containing matched file name, if any
 .TE
+
+It's worth noting that \fBtype\fP cannot be \fBsource\fP since in order
+to perform such a search fast enough additional indexing would need to be added to
+the database which would nearly double it's size.
+
+The search also always combines both files and archives in the results
+and at this time further granularity is not availible.
 
 .SH "OPTIONS"
 

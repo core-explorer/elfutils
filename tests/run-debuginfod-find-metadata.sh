@@ -26,12 +26,10 @@ type curl 2>/dev/null || { echo "need curl"; exit 77; }
 type jq 2>/dev/null || { echo "need jq"; exit 77; }
 
 pkg-config json-c libcurl || { echo "one or more libraries are missing (libjson-c, libcurl)"; exit 77; }
-env LD_LIBRARY_PATH=$ldpath DEBUGINFOD_URLS= ${VALGRIND_CMD} ${abs_builddir}/../debuginfod/debuginfod-find --help 2>&1 | grep metadata || { echo "compiled without metadata support"; exit 77; }
-
 
 DB=${PWD}/.debuginfod_tmp.sqlite
 export DEBUGINFOD_CACHE_PATH=${PWD}/.client_cache
-tempfiles $DB ${DB}_2 $DB-wal ${DB}_2-wal $DB-shm ${DB}_2-shm
+tempfiles $DB ${DB}_2
 
 # This variable is essential and ensures no time-race for claiming ports occurs
 # set base to a unique multiple of 100 not used in any other 'run-debuginfod-*' test
@@ -68,26 +66,29 @@ export DEBUGINFOD_URLS=http://127.0.0.1:$PORT2
 
 tempfiles json.txt
 # Check that we find correct number of files, both via local and federated links
-RESULTF=`env LD_LIBRARY_PATH=$ldpath ${abs_builddir}/../debuginfod/debuginfod-find metadata glob "/u?r/bin/*"`
-cat $RESULTF
-N_FOUND=`cat $RESULTF | jq '. | length'`
+RESULTJ=`env LD_LIBRARY_PATH=$ldpath ${abs_builddir}/../debuginfod/debuginfod-find metadata glob "/u?r/bin/*"`
+echo $RESULTJ
+N_FOUND=`echo $RESULTJ | jq '.results | length'`
 test $N_FOUND -eq 1
-RESULTF=`env LD_LIBRARY_PATH=$ldpath ${abs_builddir}/../debuginfod/debuginfod-find metadata glob "/usr/lo?al/bin/*"`
-cat $RESULTF
-N_FOUND=`cat $RESULTF | jq '. | length'`
+RESULTJ=`env LD_LIBRARY_PATH=$ldpath ${abs_builddir}/../debuginfod/debuginfod-find metadata glob "/usr/lo?al/bin/*"`
+echo $RESULTJ
+N_FOUND=`echo $RESULTJ | jq '.results | length'`
 test $N_FOUND -eq 2
 
 
 # Query via the webapi as well
 curl http://127.0.0.1:$PORT2'/metadata?key=glob&value=/usr/bin/*hi*'
-test `curl -s http://127.0.0.1:$PORT2'/metadata?key=glob&value=/usr/bin/*hi*' | jq '.[0].buildid == "f17a29b5a25bd4960531d82aa6b07c8abe84fa66"'` = 'true'
-test `curl -s http://127.0.0.1:$PORT2'/metadata?key=glob&value=/usr/bin/*hi*' | jq '.[0].file == "/usr/bin/hithere"'` = 'true'
-test `curl -s http://127.0.0.1:$PORT2'/metadata?key=glob&value=/usr/bin/*hi*' | jq '.[0].archive | test(".*hithere.*deb")'` = 'true'
+test `curl -s http://127.0.0.1:$PORT2'/metadata?key=glob&value=/usr/bin/*hi*' | jq '.results[0].buildid == "f17a29b5a25bd4960531d82aa6b07c8abe84fa66"'` = 'true'
+test `curl -s http://127.0.0.1:$PORT2'/metadata?key=glob&value=/usr/bin/*hi*' | jq '.results[0].file == "/usr/bin/hithere"'` = 'true'
+test `curl -s http://127.0.0.1:$PORT2'/metadata?key=glob&value=/usr/bin/*hi*' | jq '.results[0].archive | test(".*hithere.*deb")'` = 'true'
+# Note we query the upstream server too, since the downstream will have an incomplete result due to the badurl
+test `curl -s http://127.0.0.1:$PORT1'/metadata?key=glob&value=/usr/bin/*hi*' | jq '.complete == true'` = 'true'
+test `curl -s http://127.0.0.1:$PORT2'/metadata?key=glob&value=/usr/bin/*hi*' | jq '.complete == false'` = 'true'
 
 # An empty array is returned on server error or if the file DNE
-RESULTF=`env LD_LIBRARY_PATH=$ldpath ${abs_builddir}/../debuginfod/debuginfod-find metadata file "/this/isnt/there"`
-cat $RESULTF
-test `cat $RESULTF | jq ". == [ ]" ` = 'true'
+RESULTJ=`env LD_LIBRARY_PATH=$ldpath ${abs_builddir}/../debuginfod/debuginfod-find metadata file "/this/isnt/there"`
+echo $RESULTJ
+test `echo $RESULTJ | jq ".results == [ ]" ` = 'true'
 
 kill $PID1
 kill $PID2
@@ -97,14 +98,15 @@ PID1=0
 PID2=0
 
 # check it's still in cache
-RESULTF=`env LD_LIBRARY_PATH=$ldpath ${abs_builddir}/../debuginfod/debuginfod-find metadata file "/usr/bin/hithere"`
-cat $RESULTF
-test `cat $RESULTF | jq ". == [ ]" ` = 'true'
+RESULTJ=`env LD_LIBRARY_PATH=$ldpath ${abs_builddir}/../debuginfod/debuginfod-find metadata file "/usr/bin/hithere"`
+echo $RESULTJ
+test `echo $RESULTJ | jq ".results == [ ]" ` = 'true'
 
 # invalidate cache, retry previously successful query to now-dead servers
 echo 0 > $DEBUGINFOD_CACHE_PATH/metadata_retention_s
-RESULTF=`env LD_LIBRARY_PATH=$ldpath ${abs_builddir}/../debuginfod/debuginfod-find metadata glob "/u?r/bin/*"`
-cat $RESULTF
-test `cat $RESULTF | jq ". == [ ]" ` = 'true'
+RESULTJ=`env LD_LIBRARY_PATH=$ldpath ${abs_builddir}/../debuginfod/debuginfod-find metadata glob "/u?r/bin/*"`
+echo $RESULTJ
+test `echo $RESULTJ | jq ".results == [ ]" ` = 'true'
+test `echo $RESULTJ | jq ".complete == false" ` = 'true'
 
 exit 0

@@ -61,7 +61,7 @@ int debuginfod_find_section (debuginfod_client *c, const unsigned char *b,
 			     int s, const char *scn, char **p)
 			      { return -ENOSYS; }
 int debuginfod_find_metadata (debuginfod_client *c,
-                              const char *k, const char *v, char **p) { return -ENOSYS; }
+                              const char *k, char *v, char **p) { return -ENOSYS; }
 void debuginfod_set_progressfn(debuginfod_client *c,
 			       debuginfod_progressfn_t fn) { }
 void debuginfod_set_verbose_fd(debuginfod_client *c, int fd) { }
@@ -360,7 +360,7 @@ debuginfod_clean_cache(debuginfod_client *c,
 
   regex_t re;
   const char * pattern = ".*/(metadata.*|[a-f0-9]+(/debuginfo|/executable|/source.*|))$"; /* include dirs */
-  /* NB: also includes .../section/ subdirs */
+  /* NB: also matches .../section/ subdirs, so extracted section files also get cleaned. */
   if (regcomp (&re, pattern, REG_EXTENDED | REG_NOSUB) != 0)
     return -ENOMEM;
 
@@ -796,8 +796,8 @@ perform_queries(CURLM *curlm, CURL **target_handle, struct handle_data *data, de
   struct timespec start_time, cur_time;
   if (c->winning_headers != NULL)
     {
-      free (c->winning_headers);
-      c->winning_headers = NULL;
+    free (c->winning_headers);
+    c->winning_headers = NULL;
     }
   if ( maxtime > 0 && clock_gettime(CLOCK_MONOTONIC_RAW, &start_time) == -1)
   {
@@ -808,68 +808,68 @@ perform_queries(CURLM *curlm, CURL **target_handle, struct handle_data *data, de
   {
     /* Check to see how long querying is taking. */
     if (maxtime > 0)
-    {
-      if (clock_gettime(CLOCK_MONOTONIC_RAW, &cur_time) == -1)
       {
+      if (clock_gettime(CLOCK_MONOTONIC_RAW, &cur_time) == -1)
         return errno;
-      }
       delta = cur_time.tv_sec - start_time.tv_sec;
       if ( delta >  maxtime)
-      {
+        {
         dprintf(vfd, "Timeout with max time=%lds and transfer time=%lds\n", maxtime, delta );
         return -ETIME;
+        }
       }
-    }
     /* Wait 1 second, the minimum DEBUGINFOD_TIMEOUT.  */
     curl_multi_wait(curlm, NULL, 0, 1000, NULL);
     CURLMcode curlm_res = curl_multi_perform(curlm, &still_running);
 
-    if(only_one){
+    if(only_one)
+      {
       /* If the target file has been found, abort the other queries.  */
       if (target_handle && *target_handle != NULL)
-      {
+        {
         for (int i = 0; i < num_urls; i++)
           if (data[i].handle != *target_handle)
             curl_multi_remove_handle(curlm, data[i].handle);
           else
-          {
+            {
             committed_to = i;
             if (c->winning_headers == NULL)
-            {
+              {
               c->winning_headers = data[committed_to].response_data;
               if (vfd >= 0 && c->winning_headers != NULL)
                 dprintf(vfd, "\n%s", c->winning_headers);
               data[committed_to].response_data = NULL;
               data[committed_to].response_data_size = 0;
+              }
             }
-          }
-      }
+        }
 
       if (vfd >= 0 && !verbose_reported && committed_to >= 0)
-      {
+        {
         bool pnl = (c->default_progressfn_printed_p && vfd == STDERR_FILENO);
         dprintf (vfd, "%scommitted to url %d\n", pnl ? "\n" : "",
           committed_to);
         if (pnl)
           c->default_progressfn_printed_p = 0;
         verbose_reported = true;
+        }
       }
-    }
 
     if (curlm_res != CURLM_OK)
-    {
-      switch (curlm_res)
       {
-      case CURLM_CALL_MULTI_PERFORM: continue;
-      case CURLM_OUT_OF_MEMORY: return -ENOMEM;
-      default: return -ENETUNREACH;
+      switch (curlm_res)
+        {
+        case CURLM_CALL_MULTI_PERFORM: continue;
+        case CURLM_OUT_OF_MEMORY: return -ENOMEM;
+        default: return -ENETUNREACH;
+        }
       }
-    }
 
     long dl_size = -1;
-    if(only_one && target_handle){ // Only bother with progress functions if we're retrieving exactly 1 file
+    if(only_one && target_handle)
+      { // Only bother with progress functions if we're retrieving exactly 1 file
       if (*target_handle && (c->progressfn || maxsize > 0))
-      {
+        {
         /* Get size of file being downloaded. NB: If going through
            deflate-compressing proxies, this number is likely to be
            unavailable, so -1 may show. */
@@ -892,22 +892,22 @@ perform_queries(CURLM *curlm, CURL **target_handle, struct handle_data *data, de
         /* If Content-Length is -1, try to get the size from
             X-Debuginfod-Size */
         if (dl_size == -1 && c->winning_headers != NULL)
-        {
+          {
           long xdl;
           char *hdr = strcasestr(c->winning_headers, "x-debuginfod-size");
           size_t off = strlen("x-debuginfod-size:");
 
           if (hdr != NULL && sscanf(hdr + off, "%ld", &xdl) == 1)
             dl_size = xdl;
+          }
         }
-      }
 
       if (c->progressfn) /* inform/check progress callback */
-      {
+        {
         loops ++;
         long pa = loops; /* default param for progress callback */
         if (*target_handle) /* we've committed to a server; report its download progress */
-        {
+          {
           CURLcode curl_res;
 #if CURL_AT_LEAST_VERSION(7, 55, 0)
           curl_off_t dl;
@@ -925,19 +925,19 @@ perform_queries(CURLM *curlm, CURL **target_handle, struct handle_data *data, de
             pa = (dl >= (double)(LONG_MAX+1UL) ? LONG_MAX : (long)dl);
 #endif
 
-        }
+          }
 
         if ((*c->progressfn) (c, pa, dl_size == -1 ? 0 : dl_size))
           break;
+        }
       }
-    }
     /* Check to see if we are downloading something which exceeds maxsize, if set.*/
     if (target_handle && *target_handle && dl_size > maxsize && maxsize > 0)
-    {
+      {
       if (vfd >=0)
         dprintf(vfd, "Content-Length too large.\n");
       return -EFBIG;
-    }
+      }
   } while (still_running);
   return 0;
 }
@@ -1267,7 +1267,7 @@ make_cache_path(void)
 
  out:
   if (cache_path != NULL)
-    (void) mkdir (cache_path, 0700);
+    (void) mkdir (cache_path, 0700); // failures with this mkdir would be caught later too
   return cache_path;
 }
 
@@ -2134,7 +2134,7 @@ debuginfod_find_section (debuginfod_client *client,
 
 
 int debuginfod_find_metadata (debuginfod_client *client,
-                              const char* key, const char* value, char **path)
+                              const char* key, char* value, char **path)
 {
   (void) client;
   (void) key;
@@ -2148,13 +2148,16 @@ int debuginfod_find_metadata (debuginfod_client *client,
   char *target_cache_dir = NULL;
   char *target_cache_path = NULL;
   char *target_cache_tmppath = NULL;
+  char *target_file_name = NULL;
   char *key_and_value = NULL;
   int rc = 0, r;
   int vfd = client->verbose_fd;
   struct handle_data *data = NULL;
   
-  json_object *json_metadata = json_object_new_array();
-  if(NULL == json_metadata) {
+  json_object *json_metadata = json_object_new_object();
+  json_bool json_metadata_complete = true;
+  json_object *json_metadata_arr = json_object_new_array();
+  if(NULL == json_metadata || NULL == json_metadata_arr) {
     rc = -ENOMEM;
     goto out;
   }
@@ -2182,23 +2185,25 @@ int debuginfod_find_metadata (debuginfod_client *client,
      example format:
      cache_path:        $HOME/.cache
      target_cache_dir:  $HOME/.cache/metadata
-     target_cache_path: $HOME/.cache/metadata/key=ENCODED&value=ENCODED
-     target_cache_path: $HOME/.cache/metadata/key=ENCODED&value=ENCODED.XXXXXX     
+     target_cache_path: $HOME/.cache/metadata/KEYENCODED_VALUEENCODED
+     target_cache_path: $HOME/.cache/metadata/KEYENCODED_VALUEENCODED.XXXXXX
   */
 
   // libcurl > 7.62ish has curl_url_set()/etc. to construct these things more properly.
   // curl_easy_escape() is older
   {
     CURL *c = curl_easy_init();
-    if (!c) {
+    if (!c)
+      {
       rc = -ENOMEM;
       goto out;
-    }
+      }
     char *key_escaped = curl_easy_escape(c, key, 0);
     char *value_escaped = curl_easy_escape(c, value, 0);
     
     // fallback to unescaped values in unlikely case of error
     xalloc_str (key_and_value, "key=%s&value=%s", key_escaped ?: key, value_escaped ?: value);
+    xalloc_str (target_file_name, "%s_%s", key_escaped ?: key, value_escaped ?: value);
     curl_free(value_escaped);
     curl_free(key_escaped);
     curl_easy_cleanup(c);
@@ -2210,8 +2215,8 @@ int debuginfod_find_metadata (debuginfod_client *client,
     goto out;
   xalloc_str (target_cache_dir, "%s/metadata", cache_path);
   (void) mkdir (target_cache_dir, 0700);
-  xalloc_str (target_cache_path, "%s/%s", target_cache_dir, key_and_value);
-  xalloc_str (target_cache_tmppath, "%s/%s.XXXXXX", target_cache_dir, key_and_value);  
+  xalloc_str (target_cache_path, "%s/%s", target_cache_dir, target_file_name);
+  xalloc_str (target_cache_tmppath, "%s/%s.XXXXXX", target_cache_dir, target_file_name);
 
   int fd = open(target_cache_path, O_RDONLY);
   if (fd >= 0)
@@ -2224,7 +2229,7 @@ int debuginfod_find_metadata (debuginfod_client *client,
       xalloc_str (metadata_retention_path, "%s/%s", cache_path, metadata_retention_filename);
       if (metadata_retention_path)
         {
-          rc = debuginfod_config_cache(metadata_retention_path,
+          rc = debuginfod_config_cache(client, metadata_retention_path,
                                        metadata_retention_default_s, &st);
           free (metadata_retention_path);
           if (rc < 0)
@@ -2244,7 +2249,7 @@ int debuginfod_find_metadata (debuginfod_client *client,
       if (metadata_retention > 0 && (now - st.st_mtime <= metadata_retention))
         {
           if (client && client->verbose_fd >= 0)
-            dprintf (client->verbose_fd, "cached metadata %s", key_and_value);
+            dprintf (client->verbose_fd, "cached metadata %s", target_file_name);
 
           if (path != NULL)
             {
@@ -2377,16 +2382,22 @@ int debuginfod_find_metadata (debuginfod_client *client,
       if (vfd >= 0)
         dprintf (vfd, "Query to %s failed with error message:\n\t\"%s\"\n",
           data[i].url, data[i].errbuf);
+      json_metadata_complete = false;
       continue;
     }
 
     json_object *upstream_metadata = json_tokener_parse(data[i].metadata);
-    if(NULL == upstream_metadata) continue;
+    json_object *upstream_complete;
+    json_object *upstream_metadata_arr;
+    if(NULL == upstream_metadata ||
+       !json_object_object_get_ex(upstream_metadata, "results", &upstream_metadata_arr) ||
+       !json_object_object_get_ex(upstream_metadata, "complete", &upstream_complete)) continue;
+    json_metadata_complete &= json_object_get_boolean(upstream_complete);
     // Combine the upstream metadata into the json array
-    for (int j = 0, n = json_object_array_length(upstream_metadata); j < n; j++) {
-        json_object *entry = json_object_array_get_idx(upstream_metadata, j);
+    for (int j = 0, n = json_object_array_length(upstream_metadata_arr); j < n; j++) {
+        json_object *entry = json_object_array_get_idx(upstream_metadata_arr, j);
         json_object_get(entry); // increment reference count
-        json_object_array_add(json_metadata, entry);
+        json_object_array_add(json_metadata_arr, entry);
     }
     json_object_put(upstream_metadata);
 
@@ -2412,6 +2423,8 @@ int debuginfod_find_metadata (debuginfod_client *client,
     
   
   /* Plop the complete json_metadata object into the cache. */
+  json_object_object_add(json_metadata, "results", json_metadata_arr);
+  json_object_object_add(json_metadata, "complete", json_object_new_boolean(json_metadata_complete));
   const char* json_string = json_object_to_json_string_ext(json_metadata, JSON_C_TO_STRING_PRETTY);
   if (json_string == NULL)
     {
@@ -2480,6 +2493,7 @@ out:
   free (target_cache_path);
   free (target_cache_tmppath);
   free (key_and_value);
+  free(target_file_name);
   free (cache_path);
     
   return rc;

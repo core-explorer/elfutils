@@ -54,11 +54,10 @@ static const char args_doc[] = N_("debuginfo BUILDID\n"
                                   "source PATH /FILENAME\n"
 				  "section BUILDID SECTION-NAME\n"
 				  "section PATH SECTION-NAME\n"
-#ifdef HAVE_JSON_C                                  
-                                  "metadata KEY VALUE\n"
-#endif
+#ifdef HAVE_JSON_C
+                                  "metadata KEY(glob|file) VALUE\n"
                                   );
-
+#endif
 
 /* Definitions of arguments for argp functions.  */
 static const struct argp_option options[] =
@@ -202,6 +201,10 @@ main(int argc, char** argv)
   char *cache_name;
   int rc = 0;
 
+  /* By default the stdout output is the path of the cached file.
+     Some requests (ex. metadata query may instead choose to do a different output,
+     in that case a stringified json object) */
+  bool print_cached_file = true;
   /* Check whether FILETYPE is valid and call the appropriate
      debuginfod_find_* function. If FILETYPE is "source"
      then ensure a FILENAME was also supplied as an argument.  */
@@ -246,6 +249,19 @@ main(int argc, char** argv)
       
       rc = debuginfod_find_metadata (client, argv[remaining+1], argv[remaining+2],
                                      &cache_name);
+      /* We output a pprinted JSON object, not the regular debuginfod-find cached file path */
+      print_cached_file = false;
+      json_object *metadata = json_object_from_file(cache_name);
+      if(metadata)
+        {
+          printf("%s\n", json_object_to_json_string_ext(metadata, JSON_C_TO_STRING_PRETTY));
+          json_object_put(metadata);
+        }
+      else
+        {
+          fprintf(stderr, "%s does not contain a valid JSON format object\n", cache_name);
+          return 1;
+        }
     }
 #endif
   else
@@ -276,7 +292,7 @@ main(int argc, char** argv)
   else
     close (rc);
 
-  printf("%s\n", cache_name);
+  if(print_cached_file) printf("%s\n", cache_name);
   free (cache_name);
 
   return 0;
