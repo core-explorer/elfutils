@@ -665,12 +665,6 @@ case "$ac_cv_search__obstack_free" in
 esac
 AC_SUBST([obstack_LIBS])
 
-dnl formerly checked for json_object_array_add, but debuginfod needs a newer function
-AC_CHECK_LIB(json-c, json_object_from_fd, [
-  AC_DEFINE([HAVE_JSON_C], [1], [Define if json-c is on the machine])
-  AC_SUBST(jsonc_LIBS, '-ljson-c')
-])
-
 dnl The directories with content.
 
 dnl Documentation.
@@ -863,6 +857,7 @@ AS_IF([test "x$enable_debuginfod" != "xno"], [
     PKG_CHECK_MODULES([oldlibmicrohttpd],[libmicrohttpd < 0.9.51],[old_libmicrohttpd=yes],[old_libmicrohttpd=no])
     PKG_CHECK_MODULES([sqlite3],[sqlite3 >= 3.7.17],[],[enable_debuginfod=no])
     PKG_CHECK_MODULES([libarchive],[libarchive >= 3.1.2],[],[enable_debuginfod=no])
+    AC_CHECK_LIB(json-c, json_object_from_fd, [AC_SUBST(jsonc_LIBS, '-ljson-c')], [enable_libdebuginfod=no])
     if test "x$enable_debuginfod" = "xno"; then
       AC_MSG_ERROR([dependencies not found, use --disable-debuginfod to disable.])
     fi

@@ -129,9 +129,8 @@ using namespace std;
 #define tid() pthread_self()
 #endif
 
-#ifdef HAVE_JSON_C
-  #include <json-c/json.h>
-#endif
+#include <json-c/json.h>
+
 
 inline bool
 string_endswith(const string& haystack, const string& needle)
@@ -2701,7 +2700,6 @@ handle_metrics (off_t* size)
 }
 
 
-#ifdef HAVE_JSON_C
 static struct MHD_Response*
 handle_metadata (MHD_Connection* conn,
                  string key, string value, off_t* size)
@@ -2876,7 +2874,6 @@ handle_metadata (MHD_Connection* conn,
     add_mhd_response_header(r, "Content-Type", "application/json");
   return r;
 }
-#endif
 
 
 static struct MHD_Response*
@@ -3014,7 +3011,6 @@ handler_cb (void * /*cls*/,
           inc_metric("http_requests_total", "type", artifacttype);
           r = handle_metrics(& http_size);
         }
-#ifdef HAVE_JSON_C
       else if (url1 == "/metadata")
         {
           tmp_inc_metric m ("thread_busy", "role", "http-metadata");
@@ -3028,7 +3024,6 @@ handler_cb (void * /*cls*/,
           inc_metric("http_requests_total", "type", artifacttype);
           r = handle_metadata(connection, key, value, &http_size);
         }
-#endif
       else if (url1 == "/")
         {
           artifacttype = "/";

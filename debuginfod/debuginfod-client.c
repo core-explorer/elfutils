@@ -115,10 +115,7 @@ void debuginfod_end (debuginfod_client *c) { }
 #endif
 
 #include <pthread.h>
-
-#ifdef HAVE_JSON_C
-  #include <json-c/json.h>
-#endif
+#include <json-c/json.h>
 
 static pthread_once_t init_control = PTHREAD_ONCE_INIT;
 
@@ -180,12 +177,10 @@ static const char *cache_miss_filename = "cache_miss_s";
 static const char *cache_max_unused_age_filename = "max_unused_age_s";
 static const long cache_default_max_unused_age_s = 604800; /* 1 week */
 
-#ifdef HAVE_JSON_C
 /* The metadata_retention_default_s file within the debuginfod cache
    specifies how long metadata query results should be cached. */
 static const long metadata_retention_default_s = 86400; /* 1 day */
 static const char *metadata_retention_filename = "metadata_retention_s";
-#endif
 
 /* Location of the cache of files downloaded from debuginfods.
    The default parent directory is $HOME, or '/' if $HOME doesn't exist.  */
@@ -609,7 +604,6 @@ header_callback (char * buffer, size_t size, size_t numitems, void * userdata)
 }
 
 
-#ifdef HAVE_JSON_C
 static size_t
 metadata_callback (char * buffer, size_t size, size_t numitems, void * userdata)
 {
@@ -628,7 +622,6 @@ metadata_callback (char * buffer, size_t size, size_t numitems, void * userdata)
   data->metadata[data->metadata_size] = '\0';
   return numitems;
 }
-#endif
 
 
 /* This function takes a copy of DEBUGINFOD_URLS, server_urls, and seperates it into an
@@ -2141,7 +2134,6 @@ int debuginfod_find_metadata (debuginfod_client *client,
   (void) value;
   (void) path;
   
-#ifdef HAVE_JSON_C
   char *server_urls = NULL;
   char *urls_envvar = NULL;
   char *cache_path = NULL;
@@ -2497,10 +2489,6 @@ out:
   free (cache_path);
     
   return rc;
-
-#else /* ! HAVE_JSON_C */
-  return -ENOSYS;
-#endif
 }
 
 

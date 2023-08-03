@@ -30,10 +30,7 @@
 #include <fcntl.h>
 #include <gelf.h>
 #include <libdwelf.h>
-
-#ifdef HAVE_JSON_C
-  #include <json-c/json.h>
-#endif
+#include <json-c/json.h>
 
 /* Name and version of program.  */
 ARGP_PROGRAM_VERSION_HOOK_DEF = print_version;
@@ -52,12 +49,10 @@ static const char args_doc[] = N_("debuginfo BUILDID\n"
                                   "executable PATH\n"
                                   "source BUILDID /FILENAME\n"
                                   "source PATH /FILENAME\n"
-				  "section BUILDID SECTION-NAME\n"
-				  "section PATH SECTION-NAME\n"
-#ifdef HAVE_JSON_C
+                                  "section BUILDID SECTION-NAME\n"
+                                  "section PATH SECTION-NAME\n"
                                   "metadata KEY(glob|file) VALUE\n"
                                   );
-#endif
 
 /* Definitions of arguments for argp functions.  */
 static const struct argp_option options[] =
@@ -238,7 +233,6 @@ main(int argc, char** argv)
       rc = debuginfod_find_section(client, build_id, build_id_len,
 				   argv[remaining+2], &cache_name);
     }
-#ifdef HAVE_JSON_C
   else if (strcmp(argv[remaining], "metadata") == 0) /* no buildid! */
     {
       if (remaining+2 == argc)
@@ -263,7 +257,6 @@ main(int argc, char** argv)
           return 1;
         }
     }
-#endif
   else
     {
       argp_help (&argp, stderr, ARGP_HELP_USAGE, argv[0]);
