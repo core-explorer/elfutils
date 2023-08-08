@@ -2149,10 +2149,11 @@ int debuginfod_find_metadata (debuginfod_client *client,
   json_object *json_metadata = json_object_new_object();
   json_bool json_metadata_complete = true;
   json_object *json_metadata_arr = json_object_new_array();
-  if(NULL == json_metadata || NULL == json_metadata_arr) {
+  if(NULL == json_metadata) {
     rc = -ENOMEM;
     goto out;
   }
+  json_object_object_add(json_metadata, "results", json_metadata_arr != NULL ? json_metadata_arr : json_object_new_array_ext(0) /* Empty array */);
 
   if(NULL == value || NULL == key){
     rc = -EINVAL;
@@ -2415,7 +2416,6 @@ int debuginfod_find_metadata (debuginfod_client *client,
     
   
   /* Plop the complete json_metadata object into the cache. */
-  json_object_object_add(json_metadata, "results", json_metadata_arr);
   json_object_object_add(json_metadata, "complete", json_object_new_boolean(json_metadata_complete));
   const char* json_string = json_object_to_json_string_ext(json_metadata, JSON_C_TO_STRING_PRETTY);
   if (json_string == NULL)

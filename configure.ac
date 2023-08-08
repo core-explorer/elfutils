@@ -857,7 +857,7 @@ AS_IF([test "x$enable_debuginfod" != "xno"], [
     PKG_CHECK_MODULES([oldlibmicrohttpd],[libmicrohttpd < 0.9.51],[old_libmicrohttpd=yes],[old_libmicrohttpd=no])
     PKG_CHECK_MODULES([sqlite3],[sqlite3 >= 3.7.17],[],[enable_debuginfod=no])
     PKG_CHECK_MODULES([libarchive],[libarchive >= 3.1.2],[],[enable_debuginfod=no])
-    AC_CHECK_LIB(json-c, json_object_from_fd, [AC_SUBST(jsonc_LIBS, '-ljson-c')], [enable_libdebuginfod=no])
+    AC_CHECK_LIB(json-c, json_object_from_fd, [AC_SUBST(jsonc_LIBS, '-ljson-c')], [enable_debuginfod=no])
     if test "x$enable_debuginfod" = "xno"; then
       AC_MSG_ERROR([dependencies not found, use --disable-debuginfod to disable.])
     fi

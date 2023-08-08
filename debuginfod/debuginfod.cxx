@@ -2751,6 +2751,7 @@ handle_metadata (MHD_Connection* conn,
   defer_dtor<json_object*,int> metadata_d(metadata, json_object_put);
   json_object *metadata_arr = json_object_new_array();
   if (!metadata_arr) throw libc_exception(ENOMEM, "json allocation");
+  json_object_object_add(metadata, "results", metadata_arr);
   // consume all the rows
   struct timespec ts_start;
   clock_gettime (CLOCK_MONOTONIC, &ts_start);
@@ -2861,7 +2862,6 @@ handle_metadata (MHD_Connection* conn,
                    << " total=" << num_total_results
                    << endl;
   
-  json_object_object_add(metadata, "results", metadata_arr);
   json_object_object_add(metadata, "complete", json_object_new_boolean(metadata_complete));
   const char* metadata_str = json_object_to_json_string(metadata);
   if (!metadata_str)
