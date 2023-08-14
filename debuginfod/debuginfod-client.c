@@ -92,6 +92,7 @@ void debuginfod_end (debuginfod_client *c) { }
 #include <sys/stat.h>
 #include <sys/utsname.h>
 #include <curl/curl.h>
+#include <fnmatch.h>
 
 /* If fts.h is included before config.h, its indirect inclusions may not
    give us the right LFS aliases of these functions, so map them manually.  */
@@ -113,6 +114,69 @@ void debuginfod_end (debuginfod_client *c) { }
 #endif
 
 #include <pthread.h>
+
+typedef enum {ignore, permissive, enforcing, undefined} ima_policy_t;
+#ifdef ENABLE_IMA_VERIFICATION
+  #include <imaevm.h>
+  #include <openssl/pem.h>
+  #include <openssl/evp.h>
+  #include <openssl/x509v3.h>
+  #include <arpa/inet.h>
+  static inline unsigned char hex2dec(char c)
+  {
+    if (c >= '0' && c <= '9') return (c - '0');
+    if (c >= 'a' && c <= 'f') return (c - 'a') + 10;
+    if (c >= 'A' && c <= 'F') return (c - 'A') + 10;
+    return 0;
+  }
+
+  static inline ima_policy_t ima_policy_str2enum(const char* ima_pol)
+  {
+    if (NULL == ima_pol)                    return undefined;
+    if (0 == strcmp(ima_pol, "ignore"))     return ignore;
+    if (0 == strcmp(ima_pol, "permissive")) return permissive;
+    if (0 == strcmp(ima_pol, "enforcing"))  return enforcing;
+    return undefined;
+  }
+
+  static inline const char* ima_policy_enum2str(ima_policy_t ima_pol)
+  {
+    switch (ima_pol)
+    {
+    case ignore:
+      return "ignore";
+    case permissive:
+      return "permissive";
+    case enforcing:
+      return "enforcing";
+    case undefined:
+      return "";
+    }
+    return "";
+  }
+
+  static uint32_t extract_skid(X509* x509)
+  {
+    if (!x509) return 0;
+    uint32_t keyid = 0;
+    // Attempt to get the skid from the certificate
+    const ASN1_OCTET_STRING *skid_asn1_str = X509_get0_subject_key_id(x509);
+    if (skid_asn1_str)
+    {
+      int skid_len = ASN1_STRING_length(skid_asn1_str);
+      memcpy(&keyid, ASN1_STRING_get0_data(skid_asn1_str) + skid_len - sizeof(keyid), sizeof(keyid));
+    }
+    else
+    {
+      // If it is not there fallback to trying to extract it from the
+      // public key itself
+      EVP_PKEY * pkey = X509_get0_pubkey(x509);
+      char name[PATH_MAX];
+      calc_keyid_v2(&keyid, name, pkey);
+    }
+    return ntohl(keyid);
+  }
+#endif
 
 static pthread_once_t init_control = PTHREAD_ONCE_INIT;
 
@@ -853,6 +917,174 @@ cache_find_section (const char *scn_name, const char *target_cache_dir,
   return rc;
 }
 
+/* Validate an IMA file signature.
+ * returns 0 on signature validity, EINVAL on signature invalidity, ENOSYS on undefined imaevm machinery,
+ * ENOKEY on key issues and -errno on error
+ */
+static int
+debuginfod_validate_imasig (debuginfod_client *c, const char* tmp_path, int fd)
+{
+  (void) c;
+  (void) tmp_path;
+  (void) fd;
+  int rc = ENOSYS;
+
+  #ifdef ENABLE_IMA_VERIFICATION
+    char *cert_paths = NULL; // need to copy because of strtok
+    int vfd = c->verbose_fd;
+    EVP_MD_CTX *ctx = NULL;
+    if (!c || !c->winning_headers)
+    {
+      rc = -ENODATA;
+      goto exit_validate;
+    }
+    // Extract the HEX IMA-signature from the header
+    char* sig_buf = NULL;
+    char* hdr_ima_sig = strcasestr(c->winning_headers, "x-debuginfod-imasignature");
+    if (!hdr_ima_sig || 1 != sscanf(hdr_ima_sig + strlen("x-debuginfod-imasignature:"), "%ms", &sig_buf))
+    {
+      rc = -ENODATA;
+      goto exit_validate;
+    }
+    if (strlen(sig_buf) > MAX_SIGNATURE_SIZE) // reject if too long
+    {
+      rc = -EBADMSG;
+      goto exit_validate;
+    }
+    // Convert the hex signature to bin
+    size_t bin_sig_len = strlen(sig_buf)/2;
+    unsigned char bin_sig[MAX_SIGNATURE_SIZE/2];
+    for (size_t b = 0; b < bin_sig_len; b++)
+      bin_sig[b] = (hex2dec(sig_buf[2*b]) << 4) | hex2dec(sig_buf[2*b+1]);
+
+    // Compute the binary digest of the cached file (with file descriptor fd)
+    ctx = EVP_MD_CTX_new();
+    int hash_algo = imaevm_hash_algo_from_sig(bin_sig + 1);
+    const EVP_MD *md = EVP_get_digestbyname(imaevm_hash_algo_by_id(hash_algo));
+    if (!ctx || !md || !EVP_DigestInit(ctx, md))
+    {
+      rc = -EBADMSG;
+      goto exit_validate;
+    }
+
+    long data_len;
+    char* hdr_data_len = strcasestr(c->winning_headers, "x-debuginfod-size");
+    if (!hdr_data_len || 1 != sscanf(hdr_data_len + strlen("x-debuginfod-size:") , "%ld", &data_len))
+    {
+      rc = -ENODATA;
+      goto exit_validate;
+    }
+
+    char file_data[DATA_SIZE];
+    ssize_t n;
+    for(long k = 0; k < data_len; k += n)
+    {
+      if (-1 == (n = pread(fd, file_data, DATA_SIZE, k)))
+      {
+        rc = -errno;
+        goto exit_validate;
+      }
+
+      if (!EVP_DigestUpdate(ctx, file_data, n))
+      {
+        rc = -EBADMSG;
+        goto exit_validate;
+      }
+    }
+
+    uint8_t bin_dig[MAX_DIGEST_SIZE];
+    unsigned int bin_dig_len;
+    if (!EVP_DigestFinal(ctx, bin_dig, &bin_dig_len))
+    {
+      rc = -EBADMSG;
+      goto exit_validate;
+    }
+
+    /* Iterate over the directories in DEBUGINFOD_IMA_CERT_PATH looking
+     * for the first verification certificate which matches keyid
+     */
+    uint32_t keyid = ntohl(((struct signature_v2_hdr *)(bin_sig + 1))->keyid); // The signature's keyid
+
+    imaevm_params.verbose = 0;
+    cert_paths = strdup (getenv(DEBUGINFOD_IMA_CERT_PATH_ENV_VAR) ?: strdup(DEBUGINFOD_IMA_CERT_PATH_DEFAULT));
+    rc = ENOKEY; // This is updated iff a good cert is found
+    if (!cert_paths)
+      goto exit_validate;
+
+    char* cert_dir_path;
+    DIR *dp;
+    struct dirent *entry;
+    for(cert_dir_path = strtok(cert_paths, ":"); cert_dir_path != NULL; cert_dir_path = strtok(NULL, ":"))
+    {
+      dp = opendir(cert_dir_path);
+      if(!dp) continue;
+      while((entry = readdir(dp)))
+      {
+        // Only consider regular files with common x509 cert extensions
+        if(entry->d_type != DT_REG || 0 != fnmatch("*.@(der|pem|crt|cer)", entry->d_name, FNM_EXTMATCH)) continue;
+        char certfile[PATH_MAX];
+        strncpy(certfile, cert_dir_path, PATH_MAX - 1);
+        if(certfile[strlen(certfile)-1] != '/') certfile[strlen(certfile)] = '/';
+        strncat(certfile, entry->d_name, PATH_MAX - strlen(certfile) - 1);
+        certfile[strlen(certfile)] = '\0';
+
+        FILE *cert_fp = fopen(certfile, "r");
+        if(!cert_fp) continue;
+        X509 *x509 = NULL;
+        bool cert_found = false;
+        // Attempt to read the fp as DER and assuming the key matches that of the signature add this key to be used
+        if(d2i_X509_fp(cert_fp, &x509) && keyid == extract_skid(x509))
+        {
+          init_public_keys(certfile);
+          if (vfd >= 0) dprintf(vfd, "Loaded certificate %s (keyid = %04x, encoding = der)\n", certfile, keyid);
+          cert_found = true;
+        }
+        // Attempt to read the fp as PEM and assuming the key matches that of the signature add this key to be used
+        // Note we fseek since this is the second time we read from the fp
+        else if(0 == fseek(cert_fp, 0, SEEK_SET) && PEM_read_X509(cert_fp, &x509, NULL, NULL) && \
+                keyid == extract_skid(x509))
+        {
+          /* init_public_keys requires the path to a DER format x509 cert, so when we encounter a PEM
+           * format cert we first need to encode x509 to DER and write it to a new temp file.
+           * We can then pass this to init_public_keys and remove it afterwards
+           */
+          char tmp_file[FILENAME_MAX] = "debuginfod_tempcert_XXXXXX";
+          int tmp_fd = mkstemp(tmp_file);
+          if(-1 == tmp_fd) break;
+          FILE* der_cert_fp = fopen(tmp_file, "w");
+          i2d_X509_fp(der_cert_fp, x509);
+          fclose(der_cert_fp);
+          init_public_keys(tmp_file);
+          if (vfd >= 0) dprintf(vfd, "Loaded certificate %s (keyid = %04x, encoding = pem)\n", certfile, keyid);
+          unlink(tmp_file);
+          close(tmp_fd);
+          cert_found = true;
+        }
+        fclose(cert_fp);
+        if(x509) X509_free(x509);
+
+        if(cert_found)
+        {
+          closedir(dp);
+          int res = ima_verify_signature(tmp_path, bin_sig, bin_sig_len, bin_dig, bin_dig_len);
+          if (c->verbose_fd >= 0)
+            dprintf (c->verbose_fd, "Computed ima signature verification res=%d\n", res);
+
+          rc = (res == 1) ? EINVAL : res; // We update rc such that res = 1 is mapped to EINVAL, res = 0 is considered valid, res = -1 is an error
+          goto exit_validate;
+        }
+      }
+      closedir(dp);
+    }
+
+    exit_validate:
+    free (sig_buf);
+    free (cert_paths);
+    EVP_MD_CTX_free(ctx);
+  #endif
+  return rc;
+}
+
 /* Query each of the server URLs found in $DEBUGINFOD_URLS for the file
    with the specified build-id and type (debuginfo, executable, source or
    section).  If type is source, then type_arg should be a filename.  If
@@ -1208,12 +1440,29 @@ debuginfod_query_server (debuginfod_client *c,
   /* Initialize the memory to zero */
   char *strtok_saveptr;
   char **server_url_list = NULL;
-  char *server_url = strtok_r(server_urls, url_delim, &strtok_saveptr);
+  ima_policy_t* url_ima_policies = NULL;
+  char* server_url;
   /* Count number of URLs.  */
   int num_urls = 0;
 
-  while (server_url != NULL)
+  ima_policy_t verification_mode = permissive; // The default mode
+  for(server_url = strtok_r(server_urls, url_delim, &strtok_saveptr);
+      server_url != NULL; server_url = strtok_r(NULL, url_delim, &strtok_saveptr))
     {
+      // When we encounted a (well-formed) token off the form ima:foo, we update the policy
+      // under which results from that server will be ima verified
+      if(startswith(server_url, "ima:"))
+      {
+#ifdef ENABLE_IMA_VERIFICATION
+        ima_policy_t m = ima_policy_str2enum(server_url + strlen("ima:"));
+        if(m != undefined) verification_mode = m;
+#else
+        if (vfd >= 0)
+            dprintf(vfd, "IMA signature verification is not enabled, skipping %s\n", server_url);
+#endif
+        continue; // Not a url, just a mode change so keep going
+      }
+
       /* PR 27983: If the url is already set to be used use, skip it */
       char *slashbuildid;
       if (strlen(server_url) > 1 && server_url[strlen(server_url)-1] == '/')
@@ -1245,19 +1494,19 @@ debuginfod_query_server (debuginfod_client *c,
       else
         {
           num_urls++;
-          char ** realloc_ptr;
-          realloc_ptr = reallocarray(server_url_list, num_urls,
-                                         sizeof(char*));
-          if (realloc_ptr == NULL)
+          if (NULL == (server_url_list  = reallocarray(server_url_list, num_urls, sizeof(char*)))
+#ifdef ENABLE_IMA_VERIFICATION
+          || NULL == (url_ima_policies = reallocarray(url_ima_policies, num_urls, sizeof(ima_policy_t)))
+#endif
+            )
             {
               free (tmp_url);
               rc = -ENOMEM;
               goto out1;
             }
-          server_url_list = realloc_ptr;
           server_url_list[num_urls-1] = tmp_url;
+          if(NULL != url_ima_policies) url_ima_policies[num_urls-1] = verification_mode;
         }
-      server_url = strtok_r(NULL, url_delim, &strtok_saveptr);
     }
 
   int retry_limit = default_retry_limit;
@@ -1326,7 +1575,11 @@ debuginfod_query_server (debuginfod_client *c,
       if ((server_url = server_url_list[i]) == NULL)
         break;
       if (vfd >= 0)
-	dprintf (vfd, "init server %d %s\n", i, server_url);
+#ifdef ENABLE_IMA_VERIFICATION
+        dprintf (vfd, "init server %d %s [IMA verification policy: %s]\n", i, server_url, ima_policy_enum2str(url_ima_policies[i]));
+#else
+        dprintf (vfd, "init server %d %s\n", i, server_url);
+#endif
 
       data[i].fd = fd;
       data[i].target_handle = &target_handle;
@@ -1774,6 +2027,31 @@ debuginfod_query_server (debuginfod_client *c,
   /* PR31248: lseek back to beginning */
   (void) lseek(fd, 0, SEEK_SET);
                 
+  if(NULL != url_ima_policies && ignore != url_ima_policies[committed_to])
+  {
+    int result = debuginfod_validate_imasig(c, target_cache_tmppath, fd);
+    if(0 == result)
+    {
+      if (vfd >= 0) dprintf (vfd, "valid signature\n");
+    }
+    else if(EINVAL == result || enforcing == url_ima_policies[committed_to])
+    {
+      // All invalid signatures are rejected.
+      // Additionally in enforcing mode any non-valid signature is rejected, so by reaching
+      // this case we do so since we know it is not valid. Note - this not just invalid signatures
+      // but also signatures that cannot be validated
+      if (vfd >= 0) dprintf (vfd, "error: invalid or missing signature (%d)\n", result);
+      rc = -EPERM;
+      goto out2;
+    }
+    else
+    {
+      // By default we are permissive, so since the signature isn't invalid we
+      // give it the benefit of the doubt
+      if (vfd >= 0) dprintf (vfd, "warning: invalid or missing signature (%d)\n", result);
+    }
+  }
+
   /* rename tmp->real */
   rc = rename (target_cache_tmppath, target_cache_path);
   if (rc < 0)
@@ -1794,6 +2072,7 @@ debuginfod_query_server (debuginfod_client *c,
   for (int i = 0; i < num_urls; ++i)
     free(server_url_list[i]);
   free(server_url_list);
+  free(url_ima_policies);
   free (data);
   free (server_urls);
 
@@ -1827,6 +2106,7 @@ debuginfod_query_server (debuginfod_client *c,
   for (int i = 0; i < num_urls; ++i)
     free(server_url_list[i]);
   free(server_url_list);
+  free(url_ima_policies);
 
  out0:
   free (server_urls);
