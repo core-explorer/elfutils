@@ -27,6 +27,36 @@ debuginfod instances.  Alternate URL prefixes are separated by space.
 This environment variable may be set by /etc/profile.d scripts
 reading /etc/debuginfod/*.urls files.
 
+This environment variable can also contain policy defining tags which
+dictate the response policy for verifying per-file IMA signatures in RPMs.
+As the space seperated list is read left to right, upon encountering a tag,
+subsequent urls up to the next tag will be handled using that specified policy.
+All urls before the first tag will use the default policy, \fIpermissive\fP.
+This may look like the following
+
+.in +4n
+.EX
+DEBUGINFOD_URLS="https://foo.com ima:enforcing https://bar.ca http://localhost:8002/ ima:default https://baz.org"
+.EE
+.in
+
+Where foo.com and baz.org use the default \fIpermissive\fP policy and bar.ca and localhost use an \fIenforcing\fP policy.
+The tag is of the following form, \fIima:policy\fP, where \fIpolicy\fP can be one of:
+.IP
+- \fIenforcing\fP: Requires a valid signature to keep retrieved files.
+.IP
+- \fIpermissive\fP OR \fIdefault\fP: Gives files the benefit of the doubt, and only rejects
+them on signature invalidity but not other issues, such as errors
+or a lack of correct certification keys.
+.IP
+- \fIignore\fP:  Skips verification altogether.
+.IP
+
+if \fIpolicy\fP is not one of the above it will be skipped.
+
+Alerts of validation failure will be directed as specified
+in $DEBUGINFOD_VERBOSE.
+
 .TP
 .B $DEBUGINFOD_CACHE_PATH
 This environment variable governs the location of the cache where
@@ -81,6 +111,12 @@ This environment variable points to a file that supplies headers to
 outbound HTTP requests, one per line. The header lines shouldn't end with
 CRLF, unless that's the system newline convention. Whitespace-only lines
 are skipped.
+
+.TP
+.B $DEBUGINFOD_IMA_CERT_PATH
+This environment variable contains a list of absolute directory paths
+holding X.509 certificates for RPM per-file IMA-verification.
+Alternate paths are separated by colons.
 
 .SH CACHE
 

@@ -1,3 +1,11 @@
+2023-08-14  Ryan Goldberg  <rgoldber@redhat.com>
+
+	* run-debuginfod-ima-verification.sh: New test.
+	* hello2-1.0-1.x86_64.rpm. New test file.
+	* debuginfod-ima/koji. New test directory.
+	* imacert.der. New test file.
+	* Makefile.am (TESTS, EXTRA_DIST): Add it.
+
 2023-04-21  Frank Ch. Eigler <fche@redhat.com>
 
 	* run-debuginfod-IXr.sh: New test.

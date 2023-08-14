@@ -4,13 +4,17 @@
 # See also [man debuginfod-client-config] for other environment variables
 # such as $DEBUGINFOD_MAXSIZE, $DEBUGINFOD_MAXTIME, $DEBUGINFOD_PROGRESS.
 
+set prefix="@prefix@"
 if (! $?DEBUGINFOD_URLS) then
-    set prefix="@prefix@"
     set DEBUGINFOD_URLS=`sh -c 'cat /dev/null "$0"/*.urls 2>/dev/null; :' "@sysconfdir@/debuginfod" | tr '\n' ' '`
     if ( "$DEBUGINFOD_URLS" != "" ) then
         setenv DEBUGINFOD_URLS "$DEBUGINFOD_URLS"
+        if (! $?DEBUGINFOD_IMA_CERT_PATH) then
+            set DEBUGINFOD_IMA_CERT_PATH="@sysconfdir@/debuginfod/ima-certs/:@DEBUGINFOD_IMA_CERT_PATH@"
+            setenv DEBUGINFOD_IMA_CERT_PATH "$DEBUGINFOD_IMA_CERT_PATH"
+        endif
     else
         unset DEBUGINFOD_URLS
     endif
-    unset prefix
 endif
+unset prefix

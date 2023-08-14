@@ -290,6 +290,14 @@ phase somewhat, but generate much smaller "-wal" temporary files on
 busy servers.  The default is 256.  Disabled if 0.
 
 .TP
+.B "\-\-koji\-sigcache"
+Enable an additional step of RPM path mapping when extracting signatures for use 
+in RPM per-file IMA verification on koji repositories. The signatures are retrieved
+from the koji sigcache rpm.sig files as opposed to the original rpm header. If a
+signature cannot be found in the sigcache rpm.sig file the original header will be
+tried as a fallback.
+
+.TP
 .B "\-v"
 Increase verbosity of logging to the standard error file descriptor.
 May be repeated to increase details.  The default verbosity is 0.

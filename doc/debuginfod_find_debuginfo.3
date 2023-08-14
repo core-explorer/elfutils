@@ -250,13 +250,23 @@ void *debuginfod_so = dlopen(DEBUGINFOD_SONAME, RTLD_LAZY);
 .in
 
 .SH "SECURITY"
+
+If IMA signature(s) are available from the scanned RPMS,
 .BR debuginfod_find_* ()
-functions \fBdo not\fP include any particular security
-features.  They trust that the binaries returned by the debuginfod(s)
-are accurate.  Therefore, the list of servers should include only
-trustworthy ones.  If accessed across HTTP rather than HTTPS, the
-network should be trustworthy.  Passing user authentication information
-through the internal \fIlibcurl\fP library is not currently enabled, except
+will perform verification upon the files
+returned by the debuginfod(s). The policy of IMA validation
+is controlled via DEBUGINFOD_URLS.
+.BR debuginfod_find_* ()
+will by
+default act in a permissive way, only rejecting incorrect
+signatures. Therefore, the list of urls should either use
+trustworthy servers, or mark those that are untrustworthy
+as requiring the stricter enforcing IMA policy. See
+debuginfod-client-config(7) for more details.
+
+If accessed across HTTP rather than HTTPS, the
+network should be trustworthy.  Authentication information through
+the internal \fIlibcurl\fP library is not currently enabled, except
 for the basic plaintext \%\fIhttp[s]://userid:password@hostname/\fP style.
 (The debuginfod server does not perform authentication, but a front-end
 proxy server could.)

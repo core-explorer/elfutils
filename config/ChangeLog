@@ -1,3 +1,10 @@
+2023-08-14  Ryan Goldberg  <rgoldber@redhat.com>
+
+	* profile.csh.in: Set DEBUGINFOD_IMA_CERT_PATH directly.
+	* profile.sh.in: Set DEBUGINFOD_IMA_CERT_PATH directly.
+	* elfutils.spec.in: Add BuildRequires rpm-devel,
+	ima-evm-utils-devel, openssl-devel, rpm-sign.
+
 2023-02-21  Mark Wielaard  <mark@klomp.org>
 
 	* eu.am (USE_AFTER_FREE3_WARNING): Define.
