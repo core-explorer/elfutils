@@ -665,6 +665,35 @@ case "$ac_cv_search__obstack_free" in
 esac
 AC_SUBST([obstack_LIBS])
 
+enable_ima_verification="x"
+AC_CHECK_LIB(rpm, headerGet, [
+  AC_CHECK_DECL(RPMSIGTAG_FILESIGNATURES,
+  [
+    enable_ima_verification=$enable_ima_verification"rpm"
+    AC_SUBST(rpm_LIBS, '-lrpm -lrpmio')
+  ],
+  [], [#include <rpm/rpmlib.h>])
+])
+
+AC_CHECK_LIB(imaevm, imaevm_hash_algo_from_sig, [
+  enable_ima_verification=$enable_ima_verification"imaevm"
+  AC_SUBST(imaevm_LIBS, '-limaevm')
+])
+
+AC_CHECK_LIB(crypto, EVP_MD_CTX_new, [
+  enable_ima_verification=$enable_ima_verification"crypto"
+  AC_SUBST(crypto_LIBS, '-lcrypto')
+])
+
+debuginfod_ima_verification_enabled="no"
+if test "$enable_ima_verification" = "xrpmimaevmcrypto"; then
+  debuginfod_ima_verification_enabled="yes"
+  default_ima_cert_path=`eval echo "/etc/keys/ima:/etc/pki/rpm-ima:$sysconfdir/debuginfod/ima-certs"` # expand $prefix too
+  AC_DEFINE([ENABLE_IMA_VERIFICATION], [1], [Define if the required ima verification libraries are available])
+  AC_DEFINE_UNQUOTED(DEBUGINFOD_IMA_CERT_PATH_DEFAULT, "$default_ima_cert_path", [Default IMA certificate path])
+fi
+AM_CONDITIONAL([ENABLE_IMA_VERIFICATION],[test "$enable_ima_verification" = "xrpmimaevmcrypto"])
+
 dnl The directories with content.
 
 dnl Documentation.
@@ -916,6 +945,7 @@ AC_MSG_NOTICE([
     libdebuginfod client support       : ${enable_libdebuginfod}
     Debuginfod server support          : ${enable_debuginfod}
     Default DEBUGINFOD_URLS            : ${default_debuginfod_urls}
+    Debuginfod RPM sig checking        : ${debuginfod_ima_verification_enabled}
 
   EXTRA TEST FEATURES (used with make check)
     have bunzip2 installed (required)  : ${HAVE_BUNZIP2}

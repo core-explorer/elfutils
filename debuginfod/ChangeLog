@@ -1,3 +1,17 @@
+2023-08-14  Ryan Goldberg  <rgoldber@redhat.com>
+
+	* debuginfod.cxx (handle_buildid_r_match): Added extraction of the
+	per-file IMA signature for the queried file and store in http header.
+	* (find_globbed_koji_filepath): New function.
+	* (parse_opt): New flag --koji-sigcache.
+	* debuginfod-client.c (debuginfod_query_server): Added policy for
+	validating IMA signatures
+	* (debuginfod_validate_imasig): New function.
+	* debuginfod.h.in: Added DEBUGINFOD_IMA_CERT_PATH_ENV_VAR.
+	* Makefile.am: Add linker flags for rpm and imaevm and crypto. Also add install/uninstall
+	ima-certs/ to known location.
+	* ima-certs/: New directory containing known ima verification certificates.
+
 2023-04-21  Frank Ch. Eigler <fche@redhat.com>
 
 	* debuginfod.cxx (groom): Fix -r / -X logic.

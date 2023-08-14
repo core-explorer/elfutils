@@ -1,3 +1,10 @@
+2023-08-14  Ryan Goldberg  <rgoldber@redhat.com>
+
+	* debuginfod-client-config.7: Document DEBUGINFOD_IMA_CERT_PATH,
+	update DEBUGINFOD_URLS.
+	* debuginfod.8: Document --koji-sigcache
+	* debuginfod-find.1, debuginfod_find_debuginfo.3: Update SECURITY
+
 2023-02-14  Mark Wielaard  <mark@klomp.org>
 
 	* debuginfod.8: Add .TP before -g.

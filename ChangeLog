@@ -1,3 +1,9 @@
+2023-08-14  Ryan Goldberg  <rgoldber@redhat.com>
+
+	* configure.ac (ENABLE_IMA_VERIFICATION): Look for librpm, libimaevm and libcrypto
+	* (DEBUGINFOD_IMA_CERT_PATH): Default path for ima certificate containing
+	dirs. See also profile.*.in.
+
 2023-03-27  Di Chen  <dichen@redhat.com>
 
 	* NEWS: Support readelf -Ds for using dynamic segment to
