@@ -667,6 +667,33 @@ case "$ac_cv_search__obstack_free" in
 esac
 AC_SUBST([obstack_LIBS])
 
+enable_ima_verification="x"
+AC_CHECK_LIB(rpm, headerGet, [
+  AC_CHECK_DECL(RPMSIGTAG_FILESIGNATURES,
+  [
+    enable_ima_verification=$enable_ima_verification"rpm"
+    AC_SUBST(rpm_LIBS, '-lrpm -lrpmio')
+  ],
+  [], [#include <rpm/rpmlib.h>])
+])
+
+dnl we use only the header, not the code of this library
+AC_CHECK_HEADER(imaevm.h, [
+  enable_ima_verification=$enable_ima_verification"imaevm"
+])
+
+AC_CHECK_LIB(crypto, EVP_MD_CTX_new, [
+  enable_ima_verification=$enable_ima_verification"crypto"
+  AC_SUBST(crypto_LIBS, '-lcrypto')
+])
+
+debuginfod_ima_verification_enabled="no"
+if test "$enable_ima_verification" = "xrpmimaevmcrypto"; then
+  debuginfod_ima_verification_enabled="yes"
+  AC_DEFINE([ENABLE_IMA_VERIFICATION], [1], [Define if the required ima verification libraries are available])
+fi
+AM_CONDITIONAL([ENABLE_IMA_VERIFICATION],[test "$enable_ima_verification" = "xrpmimaevmcrypto"])
+
 dnl The directories with content.
 
 dnl Documentation.
@@ -881,6 +908,15 @@ AC_ARG_ENABLE(debuginfod-urls,
              fi],
             [default_debuginfod_urls=""])
 AC_SUBST(DEBUGINFOD_URLS, $default_debuginfod_urls)                
+AC_ARG_ENABLE(debuginfod-ima-cert-path,
+            [AS_HELP_STRING([--enable-debuginfod-ima-cert-path@<:@=PATH@:>@],[add PATH to profile.d DEBUGINFOD_IMA_CERT_PATH])],
+            [if test "x${enableval}" = "xyes";
+             then AC_MSG_ERROR([PATH required])
+             elif test "x${enableval}" != "xno"; then
+             default_debuginfod_ima_cert_path="${enableval}";
+             fi],
+            [default_debuginfod_ima_cert_path=""])
+AC_SUBST(DEBUGINFOD_IMA_CERT_PATH, $default_debuginfod_ima_cert_path)
 AC_CONFIG_FILES([config/profile.sh config/profile.csh config/profile.fish])
 
 AC_OUTPUT
@@ -920,6 +956,7 @@ AC_MSG_NOTICE([
     libdebuginfod client support       : ${enable_libdebuginfod}
     Debuginfod server support          : ${enable_debuginfod}
     Default DEBUGINFOD_URLS            : ${default_debuginfod_urls}
+    Debuginfod RPM sig checking        : ${debuginfod_ima_verification_enabled} ${default_debuginfod_ima_cert_path}
 
   EXTRA TEST FEATURES (used with make check)
     have bunzip2 installed (required)  : ${HAVE_BUNZIP2}
