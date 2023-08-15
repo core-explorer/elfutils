@@ -927,6 +927,7 @@ debuginfod_validate_imasig (debuginfod_client *c, const char* tmp_path, int fd)
   (void) tmp_path;
   (void) fd;
   int rc = ENOSYS;
+  char *cert_paths = NULL; // need to copy because of strtok
 
   #ifdef ENABLE_IMA_VERIFICATION
     int vfd = c->verbose_fd;
@@ -1000,7 +1001,7 @@ debuginfod_validate_imasig (debuginfod_client *c, const char* tmp_path, int fd)
     uint32_t keyid = ntohl(((struct signature_v2_hdr *)(bin_sig + 1))->keyid); // The signature's keyid
 
     imaevm_params.verbose = 0;
-    char *cert_paths = getenv(DEBUGINFOD_IMA_CERT_PATH_ENV_VAR);
+    cert_paths = strdup (getenv(DEBUGINFOD_IMA_CERT_PATH_ENV_VAR) ?: DEBUGINFOD_IMA_CERT_PATH_DEFAULT);
     rc = ENOKEY; // This is updated iff a good cert is found
     if (!cert_paths)
       goto exit_validate;
@@ -1061,6 +1062,9 @@ debuginfod_validate_imasig (debuginfod_client *c, const char* tmp_path, int fd)
         {
           closedir(dp);
           int res = ima_verify_signature(tmp_path, bin_sig, bin_sig_len, bin_dig, bin_dig_len);
+          if (c->verbose_fd >= 0)
+            dprintf (c->verbose_fd, "Computed ima signature verification res=%d\n", res);
+
           rc = (res == 1) ? EINVAL : res; // We update rc such that res = 1 is mapped to EINVAL, res = 0 is considered valid, res = -1 is an error
           goto exit_validate;
         }
@@ -1069,6 +1073,7 @@ debuginfod_validate_imasig (debuginfod_client *c, const char* tmp_path, int fd)
     }
 
     exit_validate:
+    free (cert_paths);
     EVP_MD_CTX_free(ctx);
   #endif
   return rc;

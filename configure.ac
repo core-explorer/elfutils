@@ -688,9 +688,9 @@ AC_CHECK_LIB(crypto, EVP_MD_CTX_new, [
 debuginfod_ima_verification_enabled="no"
 if test "$enable_ima_verification" = "xrpmimaevmcrypto"; then
   debuginfod_ima_verification_enabled="yes"
-  default_ima_cert_path="/etc/pki/rpm-ima"
+  default_ima_cert_path=`eval echo "/etc/pki/rpm-ima:$sysconfdir/debuginfod/ima-certs"` # expand $prefix too
   AC_DEFINE([ENABLE_IMA_VERIFICATION], [1], [Define if the required ima verification libraries are available])
-  AC_SUBST(DEBUGINFOD_IMA_CERT_PATH, $default_ima_cert_path)
+  AC_DEFINE_UNQUOTED(DEBUGINFOD_IMA_CERT_PATH_DEFAULT, "$default_ima_cert_path", [Default IMA certificate path])
 fi
 AM_CONDITIONAL([ENABLE_IMA_VERIFICATION],[test "$enable_ima_verification" = "xrpmimaevmcrypto"])
 
