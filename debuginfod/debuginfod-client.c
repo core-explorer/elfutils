@@ -927,9 +927,9 @@ debuginfod_validate_imasig (debuginfod_client *c, const char* tmp_path, int fd)
   (void) tmp_path;
   (void) fd;
   int rc = ENOSYS;
-  char *cert_paths = NULL; // need to copy because of strtok
 
   #ifdef ENABLE_IMA_VERIFICATION
+    char *cert_paths = NULL; // need to copy because of strtok
     int vfd = c->verbose_fd;
     EVP_MD_CTX *ctx = NULL;
     if (!c || !c->winning_headers)
