@@ -1954,21 +1954,22 @@ handle_buildid_r_match (bool internal_req_p,
     FD_t rpm_fd;
     if(!(rpm_fd = Fopen(b_source0.c_str(), "r.ufdio")))
     {
-      if (verbose) obatched(clog) << "There was an issue opening " << b_source0 << endl;
-      break;
+      if (verbose) obatched(clog) << "There was an error while opening " << b_source0 << endl;
+      break; // Exit IMA extraction
     }
 
     Header rpm_hdr;
     if(RPMRC_FAIL == rpmReadPackageFile(NULL, rpm_fd, b_source0.c_str(), &rpm_hdr))
     {
-      if (verbose) obatched(clog) << "There was an issue reading the header of " << b_source0 << endl;
+      if (verbose) obatched(clog) << "There was an error while reading the header of " << b_source0 << endl;
       Fclose(rpm_fd);
-      break;
+      break; // Exit IMA extraction
     }
 
     // Fill sig_tag_data with an alloc'd copy of the array of IMA signatures (if they exist)
     struct rpmtd_s sig_tag_data;
     rpmtdReset(&sig_tag_data);
+    do{ /* A do-while so we can break out of the koji sigcache checking on failure */
     if(requires_koji_sigcache_mapping)
     {
       /* NB: Koji builds result in a directory structure like the following
@@ -2005,21 +2006,23 @@ handle_buildid_r_match (bool internal_req_p,
       for(int i = 0; i < 2; i++) insert_pos = signed_rpm_path.rfind("/", insert_pos) - 1;
       string globbed_path  = signed_rpm_path.insert(insert_pos + 1, "/data/sigcache/*").append(".sig"); // The globbed path we're seeking
       glob_t pglob;
-      if(0 != glob(globbed_path.c_str(), GLOB_NOSORT, NULL, &pglob))
+      int grc;
+      if(0 != (grc = glob(globbed_path.c_str(), GLOB_NOSORT, NULL, &pglob)))
       {
-        if (verbose) obatched(clog) << "There was an issue globbing " << globbed_path << endl;
-        break;
+        // Break out, but only report real errors
+        if (verbose && grc != GLOB_NOMATCH) obatched(clog) << "There was an error (" << strerror(errno) << ") globbing " << globbed_path << endl;
+        break; // Exit koji sigcache check
       }
       signed_rpm_path = pglob.gl_pathv[0]; // See insight 2 above
       globfree(&pglob);
 
-      if (verbose) obatched(clog) << "attempting IMA signature extraction from koji header " << signed_rpm_path << endl;
+      if (verbose > 2) obatched(clog) << "attempting IMA signature extraction from koji header " << signed_rpm_path << endl;
 
       FD_t sig_rpm_fd;
-      if(!(sig_rpm_fd = Fopen(signed_rpm_path.c_str(), "r")))
+      if(NULL == (sig_rpm_fd = Fopen(signed_rpm_path.c_str(), "r")))
       {
-        if (verbose) obatched(clog) << "There was an issue opening " << signed_rpm_path << endl;
-        break;
+        if (verbose) obatched(clog) << "There was an error while opening " << signed_rpm_path << endl;
+        break; // Exit koji sigcache check
       }
 
       Header sig_hdr = headerRead(sig_rpm_fd, HEADER_MAGIC_YES /* Validate magic too */ );
@@ -2030,6 +2033,7 @@ handle_buildid_r_match (bool internal_req_p,
       headerFree(sig_hdr); // We can free here since sig_tag_data has an alloc'd copy of the data
       Fclose(sig_rpm_fd);
     }
+    }while(false);
 
     if(0 == sig_tag_data.count)
     {
@@ -2051,13 +2055,13 @@ handle_buildid_r_match (bool internal_req_p,
 
     if(sig && 0 != strlen(sig) && idx != -1)
     {
-      if(verbose) obatched(clog) << "Found IMA signature for " << b_source1 << ":\n" << sig << endl;
+      if (verbose > 2) obatched(clog) << "Found IMA signature for " << b_source1 << ":\n" << sig << endl;
       ima_sig = sig;
       inc_metric("http_responses_total","extra","ima-sigs-extracted");
     }
     else
     {
-      if(verbose) obatched(clog) << "Could not find IMA signature for " << b_source1 << endl;
+      if (verbose > 2) obatched(clog) << "Could not find IMA signature for " << b_source1 << endl;
     }
 
     rpmtdFreeData (&sig_tag_data);
@@ -2129,7 +2133,8 @@ handle_buildid_r_match (bool internal_req_p,
       if (verbose > 1)
 	obatched(clog) << "serving fdcache archive " << b_source0
 		       << " file " << b_source1
-		       << " section=" << section << endl;
+		       << " section=" << section
+		       << " IMA signature=" << ima_sig << endl;
       /* libmicrohttpd will close it. */
       if (result_fd)
         *result_fd = fd;
@@ -2314,7 +2319,8 @@ handle_buildid_r_match (bool internal_req_p,
           if (verbose > 1)
 	    obatched(clog) << "serving archive " << b_source0
 			   << " file " << b_source1
-			   << " section=" << section << endl;
+			   << " section=" << section
+			   << " IMA signature=" << ima_sig << endl;
           /* libmicrohttpd will close it. */
           if (result_fd)
             *result_fd = fd;
