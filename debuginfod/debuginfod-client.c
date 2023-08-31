@@ -972,7 +972,7 @@ debuginfod_validate_imasig (debuginfod_client *c, const char* tmp_path, int fd)
 
     char file_data[DATA_SIZE];
     ssize_t n;
-    for(long k = 0; k < data_len; k += DATA_SIZE)
+    for(long k = 0; k < data_len; k += n)
     {
       if (-1 == (n = pread(fd, file_data, DATA_SIZE, k)))
       {
@@ -1001,7 +1001,7 @@ debuginfod_validate_imasig (debuginfod_client *c, const char* tmp_path, int fd)
     uint32_t keyid = ntohl(((struct signature_v2_hdr *)(bin_sig + 1))->keyid); // The signature's keyid
 
     imaevm_params.verbose = 0;
-    cert_paths = strdup (getenv(DEBUGINFOD_IMA_CERT_PATH_ENV_VAR) ?: DEBUGINFOD_IMA_CERT_PATH_DEFAULT);
+    cert_paths = strdup (getenv(DEBUGINFOD_IMA_CERT_PATH_ENV_VAR) ?: strdup(DEBUGINFOD_IMA_CERT_PATH_DEFAULT));
     rc = ENOKEY; // This is updated iff a good cert is found
     if (!cert_paths)
       goto exit_validate;
