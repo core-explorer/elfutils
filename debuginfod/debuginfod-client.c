@@ -921,6 +921,10 @@ cache_find_section (const char *scn_name, const char *target_cache_dir,
  * returns 0 on signature validity, EINVAL on signature invalidity, ENOSYS on undefined imaevm machinery,
  * ENOKEY on key issues and -errno on error
  */
+
+/* libimaevm is not threadsafe [2023-10], so lock around calls */
+static pthread_mutex_t imaevm_lock = PTHREAD_MUTEX_INITIALIZER;
+
 static int
 debuginfod_validate_imasig (debuginfod_client *c, const char* tmp_path, int fd)
 {
@@ -929,6 +933,8 @@ debuginfod_validate_imasig (debuginfod_client *c, const char* tmp_path, int fd)
   (void) fd;
   int rc = ENOSYS;
 
+  (void) pthread_mutex_lock(& imaevm_lock);
+  
   #ifdef ENABLE_IMA_VERIFICATION
     char *cert_paths = NULL; // need to copy because of strtok
     int vfd = c->verbose_fd;
@@ -1000,88 +1006,87 @@ debuginfod_validate_imasig (debuginfod_client *c, const char* tmp_path, int fd)
       goto exit_validate;
     }
 
-    /* Iterate over the directories in DEBUGINFOD_IMA_CERT_PATH looking
-     * for the first verification certificate which matches keyid
-     */
-    uint32_t keyid = ntohl(((struct signature_v2_hdr *)(bin_sig + 1))->keyid); // The signature's keyid
-
-    imaevm_params.verbose = 0;
-    cert_paths = strdup (getenv(DEBUGINFOD_IMA_CERT_PATH_ENV_VAR) ?: strdup(DEBUGINFOD_IMA_CERT_PATH_DEFAULT));
-    rc = ENOKEY; // This is updated iff a good cert is found
-    if (!cert_paths)
-      goto exit_validate;
-
-    char* cert_dir_path;
-    DIR *dp;
-    struct dirent *entry;
-    for(cert_dir_path = strtok(cert_paths, ":"); cert_dir_path != NULL; cert_dir_path = strtok(NULL, ":"))
-    {
-      dp = opendir(cert_dir_path);
-      if(!dp) continue;
-      while((entry = readdir(dp)))
+    /* Iterate over the directories in DEBUGINFOD_IMA_CERT_PATH.  Only
+      need this done once per process, persistently updating libimaevm's
+      public_keys */    
+    static int certs_loaded_p = 0;
+    if (! certs_loaded_p)
       {
-        // Only consider regular files with common x509 cert extensions
-        if(entry->d_type != DT_REG || 0 != fnmatch("*.@(der|pem|crt|cer)", entry->d_name, FNM_EXTMATCH)) continue;
-        char certfile[PATH_MAX];
-        strncpy(certfile, cert_dir_path, PATH_MAX - 1);
-        if(certfile[strlen(certfile)-1] != '/') certfile[strlen(certfile)] = '/';
-        strncat(certfile, entry->d_name, PATH_MAX - strlen(certfile) - 1);
-        certfile[strlen(certfile)] = '\0';
-
-        FILE *cert_fp = fopen(certfile, "r");
-        if(!cert_fp) continue;
-        X509 *x509 = NULL;
-        bool cert_found = false;
-        // Attempt to read the fp as DER and assuming the key matches that of the signature add this key to be used
-        if(d2i_X509_fp(cert_fp, &x509) && keyid == extract_skid(x509))
-        {
-          init_public_keys(certfile);
-          if (vfd >= 0) dprintf(vfd, "Loaded certificate %s (keyid = %04x, encoding = der)\n", certfile, keyid);
-          cert_found = true;
-        }
-        // Attempt to read the fp as PEM and assuming the key matches that of the signature add this key to be used
-        // Note we fseek since this is the second time we read from the fp
-        else if(0 == fseek(cert_fp, 0, SEEK_SET) && PEM_read_X509(cert_fp, &x509, NULL, NULL) && \
-                keyid == extract_skid(x509))
-        {
-          /* init_public_keys requires the path to a DER format x509 cert, so when we encounter a PEM
-           * format cert we first need to encode x509 to DER and write it to a new temp file.
-           * We can then pass this to init_public_keys and remove it afterwards
-           */
-          char tmp_file[FILENAME_MAX] = "debuginfod_tempcert_XXXXXX";
-          int tmp_fd = mkstemp(tmp_file);
-          if(-1 == tmp_fd) break;
-          FILE* der_cert_fp = fopen(tmp_file, "w");
-          i2d_X509_fp(der_cert_fp, x509);
-          fclose(der_cert_fp);
-          init_public_keys(tmp_file);
-          if (vfd >= 0) dprintf(vfd, "Loaded certificate %s (keyid = %04x, encoding = pem)\n", certfile, keyid);
-          unlink(tmp_file);
-          close(tmp_fd);
-          cert_found = true;
-        }
-        fclose(cert_fp);
-        if(x509) X509_free(x509);
-
-        if(cert_found)
-        {
-          closedir(dp);
-          int res = ima_verify_signature(tmp_path, bin_sig, bin_sig_len, bin_dig, bin_dig_len);
-          if (c->verbose_fd >= 0)
-            dprintf (c->verbose_fd, "Computed ima signature verification res=%d\n", res);
-
-          rc = (res == 1) ? EINVAL : res; // We update rc such that res = 1 is mapped to EINVAL, res = 0 is considered valid, res = -1 is an error
+        certs_loaded_p = 1;
+        
+        imaevm_params.verbose = 0;
+        cert_paths = strdup (getenv(DEBUGINFOD_IMA_CERT_PATH_ENV_VAR) ?: DEBUGINFOD_IMA_CERT_PATH_DEFAULT);
+        rc = ENOKEY; // This is updated iff a good cert is found
+        if (!cert_paths)
           goto exit_validate;
-        }
-      }
-      closedir(dp);
-    }
+        
+        char* cert_dir_path;
+        DIR *dp;
+        struct dirent *entry;
+        char *strtok_context = NULL;
+        for(cert_dir_path = strtok_r(cert_paths, ":", &strtok_context);
+            cert_dir_path != NULL;
+            cert_dir_path = strtok_r(NULL, ":", &strtok_context))
+          {
+            dp = opendir(cert_dir_path);
+            if(!dp) continue;
+            while((entry = readdir(dp)))
+              {
+                // Only consider regular files with common x509 cert extensions
+                if(entry->d_type != DT_REG || 0 != fnmatch("*.@(der|pem|crt|cer)", entry->d_name, FNM_EXTMATCH)) continue;
+                char certfile[PATH_MAX];
+                strncpy(certfile, cert_dir_path, PATH_MAX - 1);
+                if(certfile[strlen(certfile)-1] != '/') certfile[strlen(certfile)] = '/';
+                strncat(certfile, entry->d_name, PATH_MAX - strlen(certfile) - 1);
+                certfile[strlen(certfile)] = '\0';
 
-    exit_validate:
+                FILE *cert_fp = fopen(certfile, "r");
+                if(!cert_fp) continue;
+
+                X509 *x509 = NULL;
+                // Attempt to read the fp as DER and assuming the key matches that of the signature add this key to be used
+                if(d2i_X509_fp(cert_fp, &x509))
+                  {
+                    init_public_keys(certfile);
+                    if (vfd >= 0) dprintf(vfd, "Loaded certificate %s (keyid = %04x, encoding = der)\n", certfile, extract_skid(x509));
+                  }
+                // Attempt to read the fp as PEM and assuming the key matches that of the signature add this key to be used
+                // Note we fseek since this is the second time we read from the fp
+                else if(0 == fseek(cert_fp, 0, SEEK_SET) && PEM_read_X509(cert_fp, &x509, NULL, NULL))
+                  {
+                    /* init_public_keys requires the path to a DER format x509 cert, so when we encounter a PEM
+                     * format cert we first need to encode x509 to DER and write it to a new temp file.
+                     * We can then pass this to init_public_keys and remove it afterwards
+                     */
+                    char tmp_file[] = "/tmp/debuginfod_tempcert_XXXXXX";
+                    int tmp_fd = mkstemp(tmp_file);
+                    if(-1 == tmp_fd) break;
+                    FILE* der_cert_fp = fopen(tmp_file, "w");
+                    i2d_X509_fp(der_cert_fp, x509);
+                    fclose(der_cert_fp);
+                    init_public_keys(tmp_file);
+                    if (vfd >= 0) dprintf(vfd, "Loaded certificate %s (keyid = %04x, encoding = pem)\n", certfile, extract_skid(x509));
+                    unlink(tmp_file);
+                    close(tmp_fd);
+                  }
+                fclose(cert_fp);
+                if(x509) X509_free(x509);
+              } /* for each file in directory */
+            closedir(dp);
+          } /* for each directory */
+        free(cert_paths);
+      }
+
+    int res = ima_verify_signature(tmp_path, bin_sig, bin_sig_len, bin_dig, bin_dig_len);
+    if (c->verbose_fd >= 0)
+      dprintf (c->verbose_fd, "Computed ima signature verification res=%d\n", res);
+    rc = (res == 1) ? EINVAL : res; // We update rc such that res = 1 is mapped to EINVAL, res = 0 is considered valid, res = -1 is an error
+
+ exit_validate:
     free (sig_buf);
-    free (cert_paths);
     EVP_MD_CTX_free(ctx);
   #endif
+    (void) pthread_mutex_unlock(& imaevm_lock);
   return rc;
 }
 
@@ -1463,6 +1468,13 @@ debuginfod_query_server (debuginfod_client *c,
         continue; // Not a url, just a mode change so keep going
       }
 
+      if (verification_mode==enforcing && 0==strcmp(type,"section"))
+        {
+          if (vfd >= 0)
+            dprintf(vfd, "skipping server %s section query in IMA enforcing mode\n", server_url);
+          continue;
+        }
+      
       /* PR 27983: If the url is already set to be used use, skip it */
       char *slashbuildid;
       if (strlen(server_url) > 1 && server_url[strlen(server_url)-1] == '/')
@@ -1509,6 +1521,13 @@ debuginfod_query_server (debuginfod_client *c,
         }
     }
 
+  /* No URLs survived parsing / filtering?  Abort abort abort. */
+  if (num_urls == 0)
+    {
+      rc = -ENOSYS;
+      goto out1;
+    }
+  
   int retry_limit = default_retry_limit;
   const char* retry_limit_envvar = getenv(DEBUGINFOD_RETRY_LIMIT_ENV_VAR);
   if (retry_limit_envvar != NULL)
@@ -2139,7 +2158,11 @@ debuginfod_query_server (debuginfod_client *c,
   free (cache_miss_path);
   free (target_cache_dir);
   free (target_cache_path);
+  if (rc < 0 && target_cache_tmppath != NULL)
+    (void)unlink (target_cache_tmppath);
   free (target_cache_tmppath);
+
+  
   return rc;
 }
 
@@ -2257,9 +2280,11 @@ debuginfod_find_section (debuginfod_client *client,
 {
   int rc = debuginfod_query_server(client, build_id, build_id_len,
 				   "section", section, path);
-  if (rc != -EINVAL)
+  if (rc != -EINVAL && rc != -ENOSYS)
     return rc;
-
+  /* NB: we fall through in case of ima:enforcing-filtered DEBUGINFOD_URLS servers,
+     so we can download the entire file, verify it locally, then slice it. */
+  
   /* The servers may have lacked support for section queries.  Attempt to
      download the debuginfo or executable containing the section in order
      to extract it.  */
