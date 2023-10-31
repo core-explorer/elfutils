@@ -260,7 +260,7 @@ will perform verification upon the files.
 Validation policy is controlled via tags inserted into
 $DEBUGINFOD_URLS.  By default, 
 .BR debuginfod_find_* ()
-acts in permissive mode, only rejecting incorrect
+acts in optimistic mode, only rejecting known-incorrect
 signatures.  See below for details and other policy options.
 
 If accessed across HTTP rather than HTTPS, the
