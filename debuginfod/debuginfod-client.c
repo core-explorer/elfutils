@@ -115,7 +115,7 @@ void debuginfod_end (debuginfod_client *c) { }
 
 #include <pthread.h>
 
-typedef enum {ignore, permissive, enforcing, undefined} ima_policy_t;
+typedef enum {ignore, optimistic, enforcing, undefined} ima_policy_t;
 #ifdef ENABLE_IMA_VERIFICATION
   #include <imaevm.h>
   #include <openssl/pem.h>
@@ -134,7 +134,7 @@ typedef enum {ignore, permissive, enforcing, undefined} ima_policy_t;
   {
     if (NULL == ima_pol)                    return undefined;
     if (0 == strcmp(ima_pol, "ignore"))     return ignore;
-    if (0 == strcmp(ima_pol, "permissive")) return permissive;
+    if (0 == strcmp(ima_pol, "optimistic")) return optimistic;
     if (0 == strcmp(ima_pol, "enforcing"))  return enforcing;
     return undefined;
   }
@@ -145,12 +145,12 @@ typedef enum {ignore, permissive, enforcing, undefined} ima_policy_t;
     {
     case ignore:
       return "ignore";
-    case permissive:
-      return "permissive";
+    case optimistic:
+      return "optimistic";
     case enforcing:
       return "enforcing";
     case undefined:
-      return "";
+      return "undefined";
     }
     return "";
   }
@@ -1450,7 +1450,7 @@ debuginfod_query_server (debuginfod_client *c,
   /* Count number of URLs.  */
   int num_urls = 0;
 
-  ima_policy_t verification_mode = permissive; // The default mode
+  ima_policy_t verification_mode = optimistic; // The default mode
   for(server_url = strtok_r(server_urls, url_delim, &strtok_saveptr);
       server_url != NULL; server_url = strtok_r(NULL, url_delim, &strtok_saveptr))
     {
@@ -2065,7 +2065,7 @@ debuginfod_query_server (debuginfod_client *c,
     }
     else
     {
-      // By default we are permissive, so since the signature isn't invalid we
+      // By default we are optimistic, so since the signature isn't invalid we
       // give it the benefit of the doubt
       if (vfd >= 0) dprintf (vfd, "warning: invalid or missing signature (%d)\n", result);
     }
