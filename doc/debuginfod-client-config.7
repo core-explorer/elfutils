@@ -32,23 +32,20 @@ dictate the response policy for verifying per-file IMA signatures in
 RPMs.  As the space seperated list is read left to right, upon
 encountering a tag, subsequent URLs up to the next tag will be handled
 using that specified policy.  All URLs before the first tag will use
-the default policy, \fIima:optimistic\fP.  For example:
+the default policy, \fIima:ignore\fP.  For example:
 
 .in +4n
 .EX
-DEBUGINFOD_URLS="https://foo.com ima:enforcing https://bar.ca http://localhost:8002/ ima:optimistic https://baz.org"
+DEBUGINFOD_URLS="https://foo.com ima:enforcing https://bar.ca http://localhost:8002/ ima:ignore https://baz.org"
 .EE
 .in
 
-Where foo.com and baz.org use the default \fIoptimistic\fP policy and
+Where foo.com and baz.org use the default \fIignore\fP policy and
 bar.ca and localhost use an \fIenforcing\fP policy.  The policy tag 
 may be one of the following:
 .IP
 \fIima:enforcing\fP Every downloaded file requires a valid signature,
 fully protecting integrity.
-.IP
-\fIima:optimistic\fP Every downloaded file with a known-invalid
-signature is rejected, protecting against some types of corruption.
 .IP
 \fIima:ignore\fP Skips verification altogether, providing no
 protection.
