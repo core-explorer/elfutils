@@ -117,16 +117,14 @@ install: install-am libdebuginfod.so
 		$(DESTDIR)$(libdir)/libdebuginfod-$(PACKAGE_VERSION).so
 	ln -fs libdebuginfod-$(PACKAGE_VERSION).so $(DESTDIR)$(libdir)/$(LIBDEBUGINFOD_SONAME)
 	ln -fs libdebuginfod-$(PACKAGE_VERSION).so $(DESTDIR)$(libdir)/libdebuginfod.so
-	cp -R $(top_srcdir)/debuginfod/ima-certs $(DESTDIR)$(sysconfdir)/debuginfod/
 uninstall: uninstall-am
 	rm -f $(DESTDIR)$(libdir)/libdebuginfod-$(PACKAGE_VERSION).so
 	rm -f $(DESTDIR)$(libdir)/$(LIBDEBUGINFOD_SONAME)
 	rm -f $(DESTDIR)$(libdir)/libdebuginfod.so
 	rmdir --ignore-fail-on-non-empty $(DESTDIR)$(includedir)/elfutils
-	rm -rf $(DESTDIR)$(sysconfdir)/debuginfod/ima-certs
 endif
 
-EXTRA_DIST = libdebuginfod.map ima-certs
+EXTRA_DIST = libdebuginfod.map
 MOSTLYCLEANFILES = $(am_libdebuginfod_pic_a_OBJECTS) $(LIBDEBUGINFOD_SONAME)
 CLEANFILES += $(am_libdebuginfod_pic_a_OBJECTS) libdebuginfod.so
 
