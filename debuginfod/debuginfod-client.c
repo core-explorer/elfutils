@@ -49,7 +49,13 @@
 
 #ifdef ENABLE_IMA_VERIFICATION
 #include <openssl/sha.h>
+#include <openssl/pem.h>
+#include <openssl/evp.h>
+#include <openssl/x509v3.h>
+#include <arpa/inet.h>
+#include <imaevm.h>
 #endif
+typedef enum {ignore, enforcing, undefined} ima_policy_t;
 
 
 /* We might be building a bootstrap dummy library, which is really simple. */
@@ -120,14 +126,6 @@ void debuginfod_end (debuginfod_client *c) { }
 
 #include <pthread.h>
 
-#ifdef ENABLE_IMA_VERIFICATION
-  #include <openssl/pem.h>
-  #include <openssl/evp.h>
-  #include <openssl/x509v3.h>
-  #include <arpa/inet.h>
-  #include <imaevm.h>
-typedef enum {ignore, enforcing, undefined} ima_policy_t;
-#endif
 
 
 static pthread_once_t init_control = PTHREAD_ONCE_INIT;
@@ -139,12 +137,14 @@ libcurl_init(void)
 }
 
 
+#ifdef ENABLE_IMA_VERIFICATION
 struct public_key_entry
 {
   struct public_key_entry *next; /* singly-linked list */
   uint32_t keyid; /* last 4 bytes of sha1 of public key */
   EVP_PKEY *key; /* openssl */
 };
+#endif
 
 
 struct debuginfod_client
