@@ -617,6 +617,7 @@ EXTRA_DIST = run-arextract.sh run-arsymtest.sh run-ar.sh \
 	     debuginfod-rpms/rhel7/hello2-two-1.0-2.x86_64.rpm \
              debuginfod-ima/koji/arch/hello-2.10-9.fc38.x86_64.rpm \
              debuginfod-ima/koji/data/sigcache/keyid/arch/hello-2.10-9.fc38.x86_64.rpm.sig \
+	     debuginfod-ima/koji/fedora-38-ima.pem \
 	     debuginfod-ima/rhel9/hello2-1.0-1.x86_64.rpm \
 	     debuginfod-ima/rhel9/imacert.der \
 	     debuginfod-debs/hithere-dbgsym_1.0-1_amd64.ddeb \
