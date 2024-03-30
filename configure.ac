@@ -677,9 +677,9 @@ AC_CHECK_LIB(rpm, headerGet, [
   [], [#include <rpm/rpmlib.h>])
 ])
 
-AC_CHECK_LIB(imaevm, imaevm_hash_algo_from_sig, [
+dnl we use only the header, not the code of this library
+AC_CHECK_HEADER(imaevm.h, [
   enable_ima_verification=$enable_ima_verification"imaevm"
-  AC_SUBST(imaevm_LIBS, '-limaevm')
 ])
 
 AC_CHECK_LIB(crypto, EVP_MD_CTX_new, [
@@ -910,6 +910,15 @@ AC_ARG_ENABLE(debuginfod-urls,
              fi],
             [default_debuginfod_urls=""])
 AC_SUBST(DEBUGINFOD_URLS, $default_debuginfod_urls)                
+AC_ARG_ENABLE(debuginfod-ima-cert-path,
+            [AS_HELP_STRING([--enable-debuginfod-ima-cert-path@<:@=PATH@:>@],[add PATH to profile.d DEBUGINFOD_IMA_CERT_PATH])],
+            [if test "x${enableval}" = "xyes";
+             then AC_MSG_ERROR([PATH required])
+             elif test "x${enableval}" != "xno"; then
+             default_debuginfod_ima_cert_path="${enableval}";
+             fi],
+            [default_debuginfod_ima_cert_path=""])
+AC_SUBST(DEBUGINFOD_IMA_CERT_PATH, $default_debuginfod_ima_cert_path)
 AC_CONFIG_FILES([config/profile.sh config/profile.csh config/profile.fish])
 
 AC_OUTPUT
@@ -949,7 +958,7 @@ AC_MSG_NOTICE([
     libdebuginfod client support       : ${enable_libdebuginfod}
     Debuginfod server support          : ${enable_debuginfod}
     Default DEBUGINFOD_URLS            : ${default_debuginfod_urls}
-    Debuginfod RPM sig checking        : ${debuginfod_ima_verification_enabled}
+    Debuginfod RPM sig checking        : ${debuginfod_ima_verification_enabled} ${default_debuginfod_ima_cert_path}
 
   EXTRA TEST FEATURES (used with make check)
     have bunzip2 installed (required)  : ${HAVE_BUNZIP2}

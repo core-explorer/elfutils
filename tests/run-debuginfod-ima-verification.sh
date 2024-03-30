@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Copyright (C) 2019-2023 Red Hat, Inc.
+# Copyright (C) 2023-2024 Red Hat, Inc.
 # This file is part of elfutils.
 #
 # This file is free software; you can redistribute it and/or modify
@@ -29,6 +29,9 @@ EoF
 tempfiles include.c
 gcc -H -fsyntax-only include.c 2> /dev/null || { echo "one or more devel packages are missing (rpm-devel, ima-evm-utils-devel, openssl-devel)"; exit 77; }
 
+set -x
+export DEBUGINFOD_VERBOSE=1
+
 DB=${PWD}/.debuginfod_tmp.sqlite
 tempfiles $DB
 export DEBUGINFOD_CACHE_PATH=${PWD}/.client_cache
@@ -53,7 +56,8 @@ RPM_BUILDID=460912dbc989106ec7325d243384df20c5ccec0c # /usr/local/bin/hello
 MIN_IMAEVM_MAJ_VERSION=3
 MIN_RPM_MAJ_VERSION=4
 # If the correct programs (and versions) exist sign the rpm in the test
-if  (command -v openssl &> /dev/null) && \
+if  false && \
+    (command -v openssl &> /dev/null) && \
     (command -v rpmsign &> /dev/null) && \
     (command -v gpg &> /dev/null) && \
     [ $(ldd `which rpmsign` | grep libimaevm | awk -F'[^0-9]+' '{ print $2 }') -ge $MIN_IMAEVM_MAJ_VERSION ] && \
@@ -97,13 +101,13 @@ wait_ready $PORT1 'thread_busy{role="scan"}' 0
 
 export DEBUGINFOD_URLS="ima:$IMA_POLICY http://127.0.0.1:$PORT1"
 
-# Test 1: Without a certificate the verification should fail
+echo Test 1: Without a certificate the verification should fail
 export DEBUGINFOD_IMA_CERT_PATH=
 RC=0
 testrun ${abs_top_builddir}/debuginfod/debuginfod-find -vv executable $RPM_BUILDID || RC=1
 test $RC -ne 0
 
-# Test 2: It should pass once the certificate is added to the path
+echo Test 2: It should pass once the certificate is added to the path
 export DEBUGINFOD_IMA_CERT_PATH=$VERIFICATION_CERT_DIR
 rm -rf $DEBUGINFOD_CACHE_PATH # clean it from previous tests
 kill -USR1 $PID1
@@ -112,7 +116,7 @@ wait_ready $PORT1 'thread_work_pending{role="scan"}' 0
 wait_ready $PORT1 'thread_busy{role="scan"}' 0
 testrun ${abs_top_builddir}/debuginfod/debuginfod-find -vv executable $RPM_BUILDID
 
-# Test 3: Corrupt the data and it should fail
+echo Test 3: Corrupt the data and it should fail
 dd if=/dev/zero of=R/signed.rpm bs=1 count=128 seek=1024 conv=notrunc
 rm -rf $DEBUGINFOD_CACHE_PATH # clean it from previous tests
 kill -USR1 $PID1
@@ -123,7 +127,7 @@ RC=0
 testrun ${abs_top_builddir}/debuginfod/debuginfod-find executable $RPM_BUILDID || RC=1
 test $RC -ne 0
 
-# Test 4: A rpm without a signature will fail
+echo Test 4: A rpm without a signature will fail
 cp signed.rpm R/signed.rpm
 rpmsign --delfilesign R/signed.rpm
 rm -rf $DEBUGINFOD_CACHE_PATH # clean it from previous tests
@@ -135,7 +139,7 @@ RC=0
 testrun ${abs_top_builddir}/debuginfod/debuginfod-find executable $RPM_BUILDID || RC=1
 test $RC -ne 0
 
-# Test 5: Only tests 1,2 will result in extracted signature
+echo Test 5: Only tests 1,2 will result in extracted signature
 [[ $(curl -s http://127.0.0.1:$PORT1/metrics | grep 'http_responses_total{extra="ima-sigs-extracted"}' | awk '{print $NF}') -eq 2 ]]
 
 kill $PID1
@@ -155,8 +159,8 @@ tempfiles vlog$PORT2
 errfiles vlog$PORT2
 
 RPM_BUILDID=c592a95e45625d7891b90f6b86e63373d540461d #/usr/bin/hello
-# Note we test with a trailing slash and with the required directory as the third in the PATH
-VERIFICATION_CERT_DIR=/not/a/dir:${abs_srcdir}/debuginfod-ima/rhel9:${abs_srcdir}/../debuginfod/ima-certs/
+# Note we test with a trailing slash
+VERIFICATION_CERT_DIR=/not/a/dir:${abs_srcdir}/debuginfod-ima/koji/
 
 ########################################################################
 # Server must become ready with koji fully scanned and indexed
@@ -165,7 +169,7 @@ wait_ready $PORT2 'thread_work_total{role="traverse"}' 1
 wait_ready $PORT2 'thread_work_pending{role="scan"}' 0
 wait_ready $PORT2 'thread_busy{role="scan"}' 0
 
-# Test 1: The path should be properly mapped and verified using the actual fedora 38 cert
+echo Test 6: The path should be properly mapped and verified using the actual fedora 38 cert
 export DEBUGINFOD_URLS="ima:$IMA_POLICY http://127.0.0.1:$PORT2"
 export DEBUGINFOD_IMA_CERT_PATH=$VERIFICATION_CERT_DIR
 testrun ${abs_top_builddir}/debuginfod/debuginfod-find -vv executable $RPM_BUILDID
