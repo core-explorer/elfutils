@@ -675,9 +675,9 @@ AC_CHECK_LIB(rpm, headerGet, [
   [], [#include <rpm/rpmlib.h>])
 ])
 
-AC_CHECK_LIB(imaevm, imaevm_hash_algo_from_sig, [
+dnl we use only the header, not the code of this library
+AC_CHECK_HEADER(imaevm.h, [
   enable_ima_verification=$enable_ima_verification"imaevm"
-  AC_SUBST(imaevm_LIBS, '-limaevm')
 ])
 
 AC_CHECK_LIB(crypto, EVP_MD_CTX_new, [

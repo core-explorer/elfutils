@@ -497,7 +497,9 @@ static bool scan_source_info = true;
 static string tmpdir;
 static bool passive_p = false;
 static long scan_checkpoint = 256;
+#ifdef ENABLE_IMA_VERIFICATION
 static bool requires_koji_sigcache_mapping = false;
+#endif
 
 static void set_metric(const string& key, double value);
 // static void inc_metric(const string& key);

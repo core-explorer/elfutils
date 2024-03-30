@@ -332,6 +332,10 @@ Query failed due to timeout. \fB$DEBUGINFOD_TIMEOUT\fP and
 Query aborted due to the file requested being too big.  The
 \fB$DEBUGINFOD_MAXSIZE\fP controls this.
 
+.TP
+.BR EBADMSG
+File content failed IMA verification.
+
 .nr zZ 1
 .so man7/debuginfod-client-config.7
 
